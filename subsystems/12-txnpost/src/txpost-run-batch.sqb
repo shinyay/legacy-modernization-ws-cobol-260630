@@ -1,0 +1,1189 @@
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. TXPOST-RUN-BATCH.
+
+       ENVIRONMENT DIVISION.
+       INPUT-OUTPUT SECTION.
+       FILE-CONTROL.
+           SELECT TXN-READY-FILE
+               ASSIGN TO WS-READY-PATH
+               ORGANIZATION IS SEQUENTIAL
+               FILE STATUS  IS WS-FS-READY.
+           SELECT TXN-ERROR-FILE
+               ASSIGN TO WS-ERROR-PATH
+               ORGANIZATION IS SEQUENTIAL
+               FILE STATUS  IS WS-FS-ERROR.
+           SELECT TXN-RECON-DEFER-FILE
+               ASSIGN TO WS-RECON-PATH
+               ORGANIZATION IS SEQUENTIAL
+               FILE STATUS  IS WS-FS-RECON.
+           SELECT DORMANCY-REPAIR-FILE
+               ASSIGN TO WS-DORM-PATH
+               ORGANIZATION IS SEQUENTIAL
+               FILE STATUS  IS WS-FS-DORM.
+
+       DATA DIVISION.
+       FILE SECTION.
+           COPY "fd-txn-ready-in.cpy".
+           COPY "fd-txn-error.cpy".
+           COPY "fd-txn-recon-defer.cpy".
+           COPY "fd-dormancy-repair.cpy".
+
+       WORKING-STORAGE SECTION.
+       01  WS-READY-PATH             PIC X(80) VALUE SPACES.
+       01  WS-ERROR-PATH             PIC X(80) VALUE SPACES.
+       01  WS-RECON-PATH             PIC X(80) VALUE SPACES.
+       01  WS-CKPT-PATH              PIC X(80) VALUE SPACES.
+       01  WS-DORM-PATH              PIC X(80) VALUE SPACES.
+
+       01  WS-FS-READY               PIC X(2).
+       01  WS-FS-ERROR               PIC X(2).
+       01  WS-FS-RECON               PIC X(2).
+       01  WS-FS-DORM                PIC X(2).
+
+           COPY "ws-txn-decoded-record.cpy".
+
+           COPY "ws-posting-state.cpy".
+           COPY "ws-account-cache-block.cpy".
+           COPY "ws-invariant-check.cpy".
+           COPY "ws-recon-defer-state.cpy".
+
+       01  WS-CONTROL.
+           05  WS-EOF                PIC X(1) VALUE "N".
+               88  WS-EOF-Y                  VALUE "Y".
+           05  WS-BUSINESS-DATE      PIC 9(8) VALUE 0.
+           05  WS-BATCH-ID           PIC X(14) VALUE SPACES.
+           05  WS-TXN-SERIAL         PIC 9(10) VALUE 0.
+
+       01  WS-COUNTERS.
+           05  WS-RECORDS-READ       PIC 9(7) VALUE 0.
+           05  WS-RECORDS-ATTEMPTED  PIC 9(7) VALUE 0.
+           05  WS-RECORDS-POSTED     PIC 9(7) VALUE 0.
+           05  WS-ALREADY-SKIPPED    PIC 9(7) VALUE 0.
+           05  WS-HARD-REJECTED      PIC 9(7) VALUE 0.
+           05  WS-IN-DOUBT-RESOLVED  PIC 9(7) VALUE 0.
+           05  WS-SER-RETRIES-TOTAL  PIC 9(7) VALUE 0.
+           05  WS-SER-RETRY-SUCCEEDED PIC 9(7) VALUE 0.
+           05  WS-SER-EXHAUSTED-DEFER PIC 9(7) VALUE 0.
+           05  WS-PER-REASON.
+               10  WS-E004           PIC 9(7) VALUE 0.
+               10  WS-E005           PIC 9(7) VALUE 0.
+               10  WS-E006           PIC 9(7) VALUE 0.
+               10  WS-E020           PIC 9(7) VALUE 0.
+               10  WS-E021           PIC 9(7) VALUE 0.
+               10  WS-E022           PIC 9(7) VALUE 0.
+               10  WS-E023           PIC 9(7) VALUE 0.
+               10  WS-E024           PIC 9(7) VALUE 0.
+               10  WS-E025           PIC 9(7) VALUE 0.
+
+        01  WS-SER-CONFIG-WK.
+            05  WS-ENV-BUF        PIC X(16) VALUE SPACES.
+            05  WS-FUNC-DATE-BUF  PIC X(21) VALUE SPACES.
+            05  WS-RAND-SEED      PIC 9(9)  VALUE 0.
+            05  WS-RAND-INIT      PIC 9V9(4) VALUE 0.
+        01  WS-BACKOFF-NANOS      PIC 9(10) VALUE 0.
+
+       01  WS-ACCT-EXISTS-IN.
+           05  WS-AE-NUMBER          PIC 9(13).
+       01  WS-ACCT-EXISTS-OUT.
+           05  WS-AE-FOUND           PIC X(1).
+           05  WS-AE-STATUS-CODE     PIC X(1).
+           05  WS-AE-PRODUCT-CODE    PIC 9(3).
+           05  WS-AE-ACTIVE-FLAG     PIC X(1).
+           05  WS-AE-FILLER          PIC X(2).
+       01  WS-ACCT-EXISTS-RC         PIC X(2).
+
+       01  WS-ACCT-LOOKUP-IN.
+           05  WS-AL-NUMBER          PIC 9(13).
+       01  WS-ACCT-LOOKUP-OUT.
+           05  WS-AL-NUMBER-OUT      PIC 9(13).
+           05  WS-AL-CUST-ID         PIC 9(10).
+           05  WS-AL-PRODUCT-CODE    PIC 9(3).
+           05  WS-AL-BRANCH-CODE     PIC 9(3).
+           05  WS-AL-OPENED-DATE     PIC 9(8).
+           05  WS-AL-CLOSED-DATE     PIC 9(8).
+           05  WS-AL-STATUS          PIC X(1).
+           05  WS-AL-OVERDRAFT       PIC S9(15) COMP-3.
+           05  WS-AL-TERM-DAYS       PIC 9(4).
+           05  WS-AL-DORMANCY-DATE   PIC 9(8).
+           05  WS-AL-CREATED-TS      PIC 9(14).
+           05  WS-AL-UPDATED-TS      PIC 9(14).
+           05  WS-AL-FILLER          PIC X(6).
+       01  WS-ACCT-LOOKUP-RC         PIC X(2).
+
+       01  WS-ACCT-UPD-DORM-NEW-DATE PIC 9(8).
+       01  WS-ACCT-UPD-DORM-RC       PIC X(2).
+
+           COPY "aud-write-api.cpy".
+
+           COPY "shared-log-api.cpy".
+
+       01  WS-CONN-FLAG              PIC X(1) VALUE "N".
+           88  WS-CONNECTED                  VALUE "Y".
+
+           EXEC SQL BEGIN DECLARE SECTION END-EXEC.
+
+       01  HV-DB-NAME                PIC X(80).
+       01  HV-DB-USER                PIC X(32).
+       01  HV-DB-PASS                PIC X(32).
+
+       01  HV-TXN-ID                 PIC X(18).
+       01  HV-BUSINESS-DATE          PIC X(10).
+       01  HV-CATEGORY               PIC X(2).
+       01  HV-ACCT-NUMBER            PIC X(13).
+       01  HV-COUNTER-ACCT           PIC X(13).
+       01  HV-COUNTER-ACCT-IND       PIC S9(4) COMP-3.
+       01  HV-AMOUNT-JPY             PIC S9(18) COMP-3.
+       01  HV-DESCRIPTION            PIC X(120).
+       01  HV-DESCRIPTION-IND        PIC S9(4) COMP-3.
+       01  HV-SOURCE-SYSTEM          PIC X(20).
+       01  HV-SOURCE-BATCH-ID        PIC X(14).
+       01  HV-SOURCE-SEQ             PIC S9(9) COMP-3.
+       01  HV-STATUS                 PIC X(2).
+
+       01  HV-POSTING-ID             PIC X(20).
+       01  HV-LINE-NO                PIC S9(4) COMP-3.
+       01  HV-DEBIT-JPY              PIC S9(18) COMP-3.
+       01  HV-CREDIT-JPY             PIC S9(18) COMP-3.
+       01  HV-POSTING-ROLE           PIC X(2).
+
+       01  HV-MAX-CLOSED-DATE        PIC X(10).
+       01  HV-LOCK-READBACK          PIC X(13).
+       01  HV-EXISTS-CHECK           PIC S9(4) COMP-3.
+       01  HV-BALANCE-AMT            PIC S9(18) COMP-3.
+
+       01  HV-AUD-ACTION             PIC X(50).
+       01  HV-AUD-ACTOR              PIC X(30).
+       01  HV-AUD-PAYLOAD            PIC X(2000).
+       01  HV-AUD-SEVERITY           PIC X(1).
+
+       01  OBX-BDATE-TXT             PIC X(10).
+       01  OBX-SUBSYSTEM             PIC X(30).
+       01  OBX-ACTION                PIC X(50).
+       01  OBX-ACTOR                 PIC X(30).
+       01  OBX-TARGET-TYPE           PIC X(20).
+       01  OBX-TARGET-ID             PIC X(20).
+       01  OBX-PAYLOAD               PIC X(2000).
+       01  OBX-SEVERITY              PIC X(1).
+       01  OBX-EVENT-KEY             PIC X(80).
+
+           EXEC SQL END DECLARE SECTION END-EXEC.
+
+           EXEC SQL INCLUDE sqlca END-EXEC.
+
+       01  WS-SQLERRD-3              PIC S9(9) COMP.
+
+       01  WS-DATE-DISP              PIC X(8).
+       01  WS-DATE-Y                 PIC 9(4).
+       01  WS-DATE-M                 PIC 9(2).
+       01  WS-DATE-D                 PIC 9(2).
+
+           COPY "aud-drain-state.cpy".
+
+       LINKAGE SECTION.
+           COPY "tx-post-api.cpy".
+
+       PROCEDURE DIVISION USING TXPOST-RUN-INPUT
+                                TXPOST-RUN-OUTPUT.
+       MAIN-LOGIC SECTION.
+       M-START.
+           PERFORM INIT-OUTPUT-AREA
+           PERFORM INIT-SER-CONFIG
+           PERFORM COPY-PATHS-FROM-LINKAGE
+           PERFORM DB-CONNECT
+           IF NOT WS-CONNECTED
+               SET TXPR-IO-FAIL TO TRUE
+               PERFORM PUBLISH-COUNTERS
+               GOBACK
+           END-IF
+           PERFORM DRAIN-AUDIT-OUTBOX
+           PERFORM VERIFY-SYSTEM-ACCOUNTS
+           IF NOT TXPR-OK
+               PERFORM PUBLISH-COUNTERS
+               PERFORM EMIT-SUMMARY-AUDIT
+               PERFORM DB-DISCONNECT
+               GOBACK
+           END-IF
+           PERFORM CHECK-I4-MONOTONICITY
+           IF NOT TXPR-OK
+               PERFORM PUBLISH-COUNTERS
+               PERFORM EMIT-SUMMARY-AUDIT
+               PERFORM DB-DISCONNECT
+               GOBACK
+           END-IF
+           PERFORM OPEN-FILES
+           IF NOT TXPR-OK
+               PERFORM PUBLISH-COUNTERS
+               PERFORM EMIT-SUMMARY-AUDIT
+               PERFORM DB-DISCONNECT
+               GOBACK
+           END-IF
+           PERFORM PROCESS-LOOP UNTIL WS-EOF-Y
+           PERFORM CLOSE-FINAL-BLOCK
+           PERFORM CLOSE-FILES
+           PERFORM PUBLISH-COUNTERS
+           PERFORM SET-FINAL-STATUS
+           PERFORM EMIT-SUMMARY-AUDIT
+           PERFORM DRAIN-AUDIT-OUTBOX
+           PERFORM DB-DISCONNECT
+           GOBACK.
+
+       INIT-OUTPUT-AREA.
+           SET TXPR-OK TO TRUE
+           MOVE 0 TO TXPR-RECORDS-READ
+                      TXPR-RECORDS-ATTEMPTED
+                      TXPR-RECORDS-POSTED
+                      TXPR-ALREADY-POSTED-SKIPPED
+                      TXPR-HARD-REJECTED
+                      TXPR-RECON-DEFERRED
+                      TXPR-IN-DOUBT-RESOLVED
+                      TXPR-DORMANCY-DEFERRED
+                      TXPR-DURATION-SEC
+                      TXPR-REASON-E004 TXPR-REASON-E005
+                      TXPR-REASON-E006 TXPR-REASON-E020
+                      TXPR-REASON-E021 TXPR-REASON-E022
+                      TXPR-REASON-E023 TXPR-REASON-E024
+                      TXPR-REASON-E025 TXPR-REASON-E026
+           MOVE 0 TO WS-RECORDS-READ WS-RECORDS-ATTEMPTED
+                      WS-RECORDS-POSTED WS-ALREADY-SKIPPED
+                      WS-HARD-REJECTED WS-IN-DOUBT-RESOLVED
+                      WS-E004 WS-E005 WS-E006 WS-E020 WS-E021
+                      WS-E022 WS-E023 WS-E024 WS-E025
+                      WS-RECON-DEFER-COUNT WS-DORM-REPAIR-COUNT
+                      WS-TXN-SERIAL
+                      WS-BLOCK-TXN-COUNT WS-BLOCK-POSTED-COUNT
+           MOVE "N" TO WS-EOF
+                       WS-BLOCK-OPEN-FLAG
+                       WS-BLOCK-ALL-REJECT-FLAG
+                       WS-RECON-DEFER-OPEN-FLAG
+                       WS-DORM-REPAIR-OPEN-FLAG
+           MOVE 0 TO WS-CURRENT-ACCT-NUMBER
+           MOVE SPACES TO WS-CURRENT-ACCT-STATUS
+                          WS-BLOCK-REJECT-REASON.
+
+       COPY-PATHS-FROM-LINKAGE.
+           MOVE FUNCTION TRIM(TXPR-IN-READY-FILENAME)
+               TO WS-READY-PATH
+           MOVE FUNCTION TRIM(TXPR-IN-ERROR-FILENAME)
+               TO WS-ERROR-PATH
+           MOVE FUNCTION TRIM(TXPR-IN-RECON-DEFER-FILENAME)
+               TO WS-RECON-PATH
+           MOVE FUNCTION TRIM(TXPR-IN-CHECKPOINT-FILENAME)
+               TO WS-CKPT-PATH
+           MOVE FUNCTION TRIM(TXPR-IN-DORMANCY-FILENAME)
+               TO WS-DORM-PATH
+           MOVE TXPR-IN-BATCH-ID      TO WS-BATCH-ID
+           MOVE TXPR-IN-BUSINESS-DATE TO WS-BUSINESS-DATE.
+
+       INIT-SER-CONFIG.
+           MOVE SPACES TO WS-ENV-BUF
+           ACCEPT WS-ENV-BUF FROM ENVIRONMENT "TXPOST_MAX_RETRIES"
+           IF WS-ENV-BUF NOT = SPACES
+               COMPUTE WS-MAX-RETRIES = FUNCTION NUMVAL(WS-ENV-BUF)
+           END-IF
+           MOVE SPACES TO WS-ENV-BUF
+           ACCEPT WS-ENV-BUF FROM ENVIRONMENT "TXPOST_BACKOFF_MS"
+           IF WS-ENV-BUF NOT = SPACES
+               COMPUTE WS-BACKOFF-BASE-MS = FUNCTION NUMVAL(WS-ENV-BUF)
+           END-IF
+           MOVE SPACES TO WS-ENV-BUF
+           ACCEPT WS-ENV-BUF FROM ENVIRONMENT "TXPOST_FAULT_CONFLICT_N"
+           IF WS-ENV-BUF NOT = SPACES
+               COMPUTE WS-FAULT-CONFLICT-N = FUNCTION NUMVAL(WS-ENV-BUF)
+           END-IF
+           MOVE FUNCTION CURRENT-DATE TO WS-FUNC-DATE-BUF
+           COMPUTE WS-RAND-SEED =
+               FUNCTION NUMVAL(WS-FUNC-DATE-BUF(13:6))
+           MOVE FUNCTION RANDOM(WS-RAND-SEED) TO WS-RAND-INIT.
+
+       DB-CONNECT.
+           MOVE "banking"  TO HV-DB-NAME
+           MOVE "cobol"    TO HV-DB-USER
+           MOVE "cobol"    TO HV-DB-PASS
+
+           EXEC SQL
+               CONNECT :HV-DB-USER IDENTIFIED BY :HV-DB-PASS
+                   USING :HV-DB-NAME
+           END-EXEC.
+
+           IF SQLCODE = 0
+               SET WS-CONNECTED TO TRUE
+           ELSE
+               MOVE "12-txnpost" TO WS-LOG-SUBSYSTEM
+               MOVE "ERROR" TO WS-LOG-LEVEL
+               STRING "DB-CONNECT fail sqlcode=" SQLCODE
+                      DELIMITED BY SIZE INTO WS-LOG-MESSAGE
+               PERFORM EMIT-LOG
+           END-IF.
+
+       DB-DISCONNECT.
+           IF WS-CONNECTED
+               EXEC SQL DISCONNECT ALL END-EXEC
+               MOVE "N" TO WS-CONN-FLAG
+           END-IF.
+
+       VERIFY-SYSTEM-ACCOUNTS.
+           MOVE WS-CASH-ACCOUNT TO WS-AE-NUMBER
+           CALL "ACCT-EXISTS" USING WS-ACCT-EXISTS-IN
+                                    WS-ACCT-EXISTS-OUT
+                                    WS-ACCT-EXISTS-RC
+           IF WS-AE-FOUND NOT = "Y"
+               MOVE "12-txnpost" TO WS-LOG-SUBSYSTEM
+               MOVE "ERROR" TO WS-LOG-LEVEL
+               STRING "E025 cash_account missing="
+                      WS-CASH-ACCOUNT
+                      DELIMITED BY SIZE INTO WS-LOG-MESSAGE
+               PERFORM EMIT-LOG
+               ADD 1 TO WS-E025
+               SET TXPR-INVALID TO TRUE
+               EXIT PARAGRAPH
+           END-IF
+           MOVE WS-CLEARING-ACCOUNT TO WS-AE-NUMBER
+           CALL "ACCT-EXISTS" USING WS-ACCT-EXISTS-IN
+                                    WS-ACCT-EXISTS-OUT
+                                    WS-ACCT-EXISTS-RC
+           IF WS-AE-FOUND NOT = "Y"
+               MOVE "12-txnpost" TO WS-LOG-SUBSYSTEM
+               MOVE "ERROR" TO WS-LOG-LEVEL
+               STRING "E025 clearing_account missing="
+                      WS-CLEARING-ACCOUNT
+                      DELIMITED BY SIZE INTO WS-LOG-MESSAGE
+               PERFORM EMIT-LOG
+               ADD 1 TO WS-E025
+               SET TXPR-INVALID TO TRUE
+           END-IF.
+
+       CHECK-I4-MONOTONICITY.
+           EXEC SQL
+               SELECT TO_CHAR(MAX(business_date), 'YYYYMMDD')
+                 INTO :HV-MAX-CLOSED-DATE
+                 FROM batch_run
+                WHERE status = 'OK'
+                  AND completed_ts IS NOT NULL
+           END-EXEC
+           IF SQLCODE = 0
+               IF HV-MAX-CLOSED-DATE NOT = SPACES
+                   MOVE HV-MAX-CLOSED-DATE TO WS-I4-MAX-CLOSED-DATE
+                   IF WS-BUSINESS-DATE < WS-I4-MAX-CLOSED-DATE
+                       ADD 1 TO WS-E020
+                       MOVE "12-txnpost" TO WS-LOG-SUBSYSTEM
+                       MOVE "ERROR" TO WS-LOG-LEVEL
+                       STRING "E020 back-dated bdate="
+                              WS-BUSINESS-DATE
+                              " max-closed=" WS-I4-MAX-CLOSED-DATE
+                              DELIMITED BY SIZE INTO WS-LOG-MESSAGE
+                       PERFORM EMIT-LOG
+                       SET TXPR-INVALID TO TRUE
+                   END-IF
+               END-IF
+           ELSE
+               IF SQLCODE NOT = 100
+                   MOVE "12-txnpost" TO WS-LOG-SUBSYSTEM
+                   MOVE "ERROR" TO WS-LOG-LEVEL
+                   STRING "I4 query fail sqlcode=" SQLCODE
+                          DELIMITED BY SIZE INTO WS-LOG-MESSAGE
+                   PERFORM EMIT-LOG
+                   SET TXPR-IO-FAIL TO TRUE
+               END-IF
+           END-IF.
+
+       OPEN-FILES.
+           OPEN INPUT TXN-READY-FILE
+           IF WS-FS-READY NOT = "00"
+               SET TXPR-IO-FAIL TO TRUE
+               EXIT PARAGRAPH
+           END-IF
+           OPEN EXTEND TXN-ERROR-FILE
+           IF WS-FS-ERROR = "35"
+               OPEN OUTPUT TXN-ERROR-FILE
+           END-IF
+           IF WS-FS-ERROR NOT = "00"
+               SET TXPR-IO-FAIL TO TRUE
+           END-IF.
+
+       CLOSE-FILES.
+           CLOSE TXN-READY-FILE
+           CLOSE TXN-ERROR-FILE
+           IF WS-RECON-DEFER-IS-OPEN
+               CLOSE TXN-RECON-DEFER-FILE
+           END-IF
+           IF WS-DORM-REPAIR-IS-OPEN
+               CLOSE DORMANCY-REPAIR-FILE
+           END-IF.
+
+       PROCESS-LOOP.
+           READ TXN-READY-FILE INTO TXN-DECODED-REC
+               AT END
+                   SET WS-EOF-Y TO TRUE
+                   EXIT PARAGRAPH
+           END-READ
+           ADD 1 TO WS-RECORDS-READ
+           EVALUATE TRUE
+               WHEN TXN-IS-HEADER
+                   CONTINUE
+               WHEN TXN-IS-TRAILER
+                   CONTINUE
+               WHEN TXN-IS-DETAIL
+                   PERFORM HANDLE-DETAIL
+               WHEN OTHER
+                   CONTINUE
+           END-EVALUATE.
+
+       HANDLE-DETAIL.
+           IF TDD-PAYER-ACCT NOT = WS-CURRENT-ACCT-NUMBER
+               IF WS-BLOCK-IS-OPEN
+                   PERFORM CLOSE-ACCT-BLOCK
+               END-IF
+               MOVE TDD-PAYER-ACCT TO WS-CURRENT-ACCT-NUMBER
+               PERFORM OPEN-ACCT-BLOCK
+               SET WS-BLOCK-IS-OPEN TO TRUE
+           END-IF
+           ADD 1 TO WS-BLOCK-TXN-COUNT
+           ADD 1 TO WS-RECORDS-ATTEMPTED
+           PERFORM PROCESS-TXN-WITHIN-BLOCK.
+
+       CLOSE-FINAL-BLOCK.
+           IF WS-BLOCK-IS-OPEN
+               PERFORM CLOSE-ACCT-BLOCK
+           END-IF.
+
+       OPEN-ACCT-BLOCK.
+           MOVE WS-CURRENT-ACCT-NUMBER TO WS-AE-NUMBER
+           CALL "ACCT-EXISTS" USING WS-ACCT-EXISTS-IN
+                                    WS-ACCT-EXISTS-OUT
+                                    WS-ACCT-EXISTS-RC
+           MOVE 0  TO WS-BLOCK-TXN-COUNT WS-BLOCK-POSTED-COUNT
+           MOVE "N" TO WS-BLOCK-ALL-REJECT-FLAG
+           MOVE SPACES TO WS-BLOCK-REJECT-REASON
+           IF WS-AE-FOUND NOT = "Y"
+               SET WS-BLOCK-ALL-REJECTED TO TRUE
+               MOVE "E004" TO WS-BLOCK-REJECT-REASON
+               EXIT PARAGRAPH
+           END-IF
+           MOVE WS-AE-STATUS-CODE TO WS-CURRENT-ACCT-STATUS
+           MOVE WS-AE-PRODUCT-CODE TO WS-CURRENT-PRODUCT-CODE
+           EVALUATE WS-AE-STATUS-CODE
+               WHEN "C"
+                   SET WS-BLOCK-ALL-REJECTED TO TRUE
+                   MOVE "E005" TO WS-BLOCK-REJECT-REASON
+               WHEN "S"
+                   SET WS-BLOCK-ALL-REJECTED TO TRUE
+                   MOVE "E006" TO WS-BLOCK-REJECT-REASON
+               WHEN OTHER
+                   CONTINUE
+           END-EVALUATE.
+
+       CLOSE-ACCT-BLOCK.
+           IF WS-BLOCK-POSTED-COUNT > 0
+               MOVE WS-BUSINESS-DATE TO WS-ACCT-UPD-DORM-NEW-DATE
+               MOVE WS-CURRENT-ACCT-NUMBER TO WS-AE-NUMBER
+               CALL "ACCT-UPDATE-DORMANCY-DATE"
+                    USING WS-ACCT-EXISTS-IN
+                          WS-ACCT-UPD-DORM-NEW-DATE
+                          WS-ACCT-UPD-DORM-RC
+               IF WS-ACCT-UPD-DORM-RC NOT = "00" AND
+                  WS-ACCT-UPD-DORM-RC NOT = "02"
+                   PERFORM WRITE-DORMANCY-REPAIR
+                   ADD 1 TO WS-DORM-REPAIR-COUNT
+               END-IF
+           END-IF
+           MOVE "N" TO WS-BLOCK-OPEN-FLAG.
+
+       PROCESS-TXN-WITHIN-BLOCK.
+           MOVE "N" TO WS-I1-RC WS-I3-RC WS-I5-RC
+           MOVE "N" TO WS-TXN-HARD-REJECT-FLAG
+                       WS-TXN-RECOVERABLE-FAIL
+                       WS-TXN-FATAL-FLAG
+                       WS-DR-IS-SYS-EXEMPT
+           MOVE SPACES TO WS-TXN-REJECT-REASON
+
+           ADD 1 TO WS-TXN-SERIAL
+           PERFORM BUILD-TXN-ID
+
+           IF WS-BLOCK-ALL-REJECTED
+               MOVE WS-BLOCK-REJECT-REASON TO WS-TXN-REJECT-REASON
+               PERFORM TALLY-HARD-REJECT
+               PERFORM REJECT-TO-ERROR-FILE
+               EXIT PARAGRAPH
+           END-IF
+
+           PERFORM CHECK-I1-IDEMPOTENCY
+           IF WS-I1-FAIL
+               MOVE "E024" TO WS-TXN-REJECT-REASON
+               PERFORM TALLY-HARD-REJECT
+               PERFORM REJECT-TO-ERROR-FILE
+               EXIT PARAGRAPH
+           END-IF
+
+           PERFORM CHECK-I5-FORBIDDEN-OPS
+           IF WS-TXN-IS-REJECTED
+               PERFORM TALLY-HARD-REJECT
+               PERFORM REJECT-TO-ERROR-FILE
+               EXIT PARAGRAPH
+           END-IF
+
+           IF TDD-CATEGORY = "30"
+               PERFORM CHECK-CAT-30-PAYEE
+               IF WS-TXN-IS-REJECTED
+                   PERFORM TALLY-HARD-REJECT
+                   PERFORM REJECT-TO-ERROR-FILE
+                   EXIT PARAGRAPH
+               END-IF
+           END-IF
+
+           IF TDD-CATEGORY = "20" OR
+              TDD-CATEGORY = "30" OR
+              TDD-CATEGORY = "40"
+               PERFORM CHECK-I3-BALANCE
+               IF WS-TXN-IS-REJECTED
+                   PERFORM TALLY-HARD-REJECT
+                   PERFORM REJECT-TO-ERROR-FILE
+                   EXIT PARAGRAPH
+               END-IF
+           END-IF
+
+           PERFORM POST-TXN-PAIR-PARA
+           IF WS-TXN-IS-FATAL
+               EXIT PARAGRAPH
+           END-IF
+           IF WS-TXN-IS-DEFERRED
+               EXIT PARAGRAPH
+           END-IF
+
+           ADD 1 TO WS-BLOCK-POSTED-COUNT
+           ADD 1 TO WS-RECORDS-POSTED.
+
+       BUILD-TXN-ID.
+           STRING WS-BUSINESS-DATE WS-TXN-SERIAL
+                  DELIMITED BY SIZE INTO WS-TXN-ID.
+
+       CHECK-I1-IDEMPOTENCY.
+           MOVE WS-TXN-ID TO HV-TXN-ID
+           EXEC SQL
+               SELECT 1 INTO :HV-EXISTS-CHECK
+                 FROM transactions
+                WHERE txn_id = :HV-TXN-ID
+           END-EXEC
+           EVALUATE SQLCODE
+               WHEN 0
+                   SET WS-I1-FAIL TO TRUE
+                   ADD 1 TO WS-ALREADY-SKIPPED
+               WHEN 100
+                   CONTINUE
+               WHEN OTHER
+                   SET WS-TXN-IS-DEFERRED TO TRUE
+           END-EVALUATE.
+
+       CHECK-I5-FORBIDDEN-OPS.
+           EVALUATE TRUE
+               WHEN WS-CUR-ACCT-APPL
+                   SET WS-TXN-IS-REJECTED TO TRUE
+                   MOVE "E023" TO WS-TXN-REJECT-REASON
+               WHEN WS-CUR-ACCT-ACTIVE
+                   CONTINUE
+               WHEN WS-CUR-ACCT-DORMANT
+                   IF TDD-CATEGORY = "20" OR
+                      TDD-CATEGORY = "30" OR
+                      TDD-CATEGORY = "40"
+                       SET WS-TXN-IS-REJECTED TO TRUE
+                       MOVE "E022" TO WS-TXN-REJECT-REASON
+                   END-IF
+               WHEN WS-CUR-ACCT-SUSPENDED
+                   SET WS-TXN-IS-REJECTED TO TRUE
+                   MOVE "E006" TO WS-TXN-REJECT-REASON
+               WHEN WS-CUR-ACCT-CLOSED
+                   SET WS-TXN-IS-REJECTED TO TRUE
+                   MOVE "E005" TO WS-TXN-REJECT-REASON
+               WHEN OTHER
+                   SET WS-TXN-IS-REJECTED TO TRUE
+                   MOVE "E099" TO WS-TXN-REJECT-REASON
+           END-EVALUATE.
+
+       CHECK-CAT-30-PAYEE.
+           MOVE TDD-PAYEE-ACCT TO WS-AE-NUMBER
+           CALL "ACCT-EXISTS" USING WS-ACCT-EXISTS-IN
+                                    WS-ACCT-EXISTS-OUT
+                                    WS-ACCT-EXISTS-RC
+           IF WS-AE-FOUND NOT = "Y"
+               SET WS-TXN-IS-REJECTED TO TRUE
+               MOVE "E004" TO WS-TXN-REJECT-REASON
+               EXIT PARAGRAPH
+           END-IF
+           EVALUATE WS-AE-STATUS-CODE
+               WHEN "C"
+                   SET WS-TXN-IS-REJECTED TO TRUE
+                   MOVE "E005" TO WS-TXN-REJECT-REASON
+               WHEN "S"
+                   SET WS-TXN-IS-REJECTED TO TRUE
+                   MOVE "E006" TO WS-TXN-REJECT-REASON
+               WHEN "P"
+                   SET WS-TXN-IS-REJECTED TO TRUE
+                   MOVE "E023" TO WS-TXN-REJECT-REASON
+               WHEN OTHER
+                   CONTINUE
+           END-EVALUATE.
+
+       CHECK-I3-BALANCE.
+           IF WS-CURRENT-ACCT-NUMBER = WS-CASH-ACCOUNT OR
+              WS-CURRENT-ACCT-NUMBER = WS-CLEARING-ACCOUNT
+               SET WS-DR-EXEMPT TO TRUE
+               EXIT PARAGRAPH
+           END-IF
+           MOVE WS-CURRENT-ACCT-NUMBER TO WS-AL-NUMBER
+           CALL "ACCT-LOOKUP" USING WS-ACCT-LOOKUP-IN
+                                    WS-ACCT-LOOKUP-OUT
+                                    WS-ACCT-LOOKUP-RC
+           IF WS-ACCT-LOOKUP-RC NOT = "00"
+               SET WS-TXN-IS-DEFERRED TO TRUE
+               EXIT PARAGRAPH
+           END-IF
+           MOVE WS-AL-OVERDRAFT TO WS-CURRENT-OVERDRAFT
+           MOVE WS-CURRENT-ACCT-NUMBER TO HV-ACCT-NUMBER
+           EXEC SQL
+               SELECT balance_jpy INTO :HV-BALANCE-AMT
+                 FROM balances
+                WHERE account_number = :HV-ACCT-NUMBER
+           END-EXEC
+           IF SQLCODE NOT = 0
+               SET WS-TXN-IS-DEFERRED TO TRUE
+               EXIT PARAGRAPH
+           END-IF
+           MOVE HV-BALANCE-AMT TO WS-I3-CURRENT-BALANCE
+           COMPUTE WS-I3-REMAINING-BALANCE =
+                   WS-I3-CURRENT-BALANCE - TDD-AMOUNT-JPY
+           IF WS-I3-REMAINING-BALANCE <
+              (0 - WS-CURRENT-OVERDRAFT)
+               SET WS-TXN-IS-REJECTED TO TRUE
+               MOVE "E021" TO WS-TXN-REJECT-REASON
+           END-IF.
+
+       POST-TXN-PAIR-PARA.
+           MOVE 0 TO WS-RETRY-COUNT
+           MOVE WS-FAULT-CONFLICT-N TO WS-FAULT-REMAINING
+           MOVE "N" TO WS-FSM-DONE
+           PERFORM UNTIL WS-FSM-DONE = "Y"
+               PERFORM POST-TXN-PAIR-ATTEMPT
+               EVALUATE WS-ATTEMPT-RESULT
+                   WHEN "OK"
+                       IF WS-RETRY-COUNT > 0
+                           ADD 1 TO WS-SER-RETRY-SUCCEEDED
+                       END-IF
+                       MOVE "Y" TO WS-FSM-DONE
+                   WHEN "DEFER"
+                       PERFORM WRITE-TO-RECON-DEFER
+                       MOVE "Y" TO WS-FSM-DONE
+                   WHEN "FATAL"
+                       ADD 1 TO WS-E025
+                       SET WS-TXN-IS-FATAL TO TRUE
+                       SET TXPR-FATAL TO TRUE
+                       MOVE "Y" TO WS-FSM-DONE
+                   WHEN "INDOUBT"
+                       PERFORM COMMIT-IN-DOUBT-RESOLVE
+                       MOVE "Y" TO WS-FSM-DONE
+                   WHEN "CONFLICT"
+                       ADD 1 TO WS-RETRY-COUNT
+                       ADD 1 TO WS-SER-RETRIES-TOTAL
+                       IF WS-RETRY-COUNT > WS-MAX-RETRIES
+                           ADD 1 TO WS-SER-EXHAUSTED-DEFER
+                           PERFORM WRITE-TO-RECON-DEFER
+                           MOVE "Y" TO WS-FSM-DONE
+                       ELSE
+                           PERFORM BACKOFF-SLEEP
+                       END-IF
+                   WHEN OTHER
+                       MOVE "Y" TO WS-FSM-DONE
+               END-EVALUATE
+           END-PERFORM.
+
+       POST-TXN-PAIR-ATTEMPT.
+           MOVE "OK" TO WS-ATTEMPT-RESULT
+           EVALUATE TDD-CATEGORY
+               WHEN "10"
+                   MOVE WS-CASH-ACCOUNT     TO WS-DR-ACCT
+                   MOVE TDD-PAYER-ACCT      TO WS-CR-ACCT
+               WHEN "20"
+                   MOVE TDD-PAYER-ACCT      TO WS-DR-ACCT
+                   MOVE WS-CASH-ACCOUNT     TO WS-CR-ACCT
+               WHEN "30"
+                   MOVE TDD-PAYER-ACCT      TO WS-DR-ACCT
+                   MOVE TDD-PAYEE-ACCT      TO WS-CR-ACCT
+               WHEN "40"
+                   MOVE TDD-PAYER-ACCT      TO WS-DR-ACCT
+                   MOVE WS-CLEARING-ACCOUNT TO WS-CR-ACCT
+               WHEN OTHER
+                   MOVE "DEFER" TO WS-ATTEMPT-RESULT
+                   EXIT PARAGRAPH
+           END-EVALUATE
+           STRING WS-TXN-ID "01" DELIMITED BY SIZE
+                  INTO WS-POSTING-ID-DR
+           STRING WS-TXN-ID "02" DELIMITED BY SIZE
+                  INTO WS-POSTING-ID-CR
+           IF WS-DR-ACCT < WS-CR-ACCT
+               MOVE WS-DR-ACCT TO WS-LOCK-ACCT-1
+               MOVE WS-CR-ACCT TO WS-LOCK-ACCT-2
+           ELSE
+               MOVE WS-CR-ACCT TO WS-LOCK-ACCT-1
+               MOVE WS-DR-ACCT TO WS-LOCK-ACCT-2
+           END-IF
+           PERFORM ROLLBACK-QUIET
+           EXEC SQL
+               SET TRANSACTION ISOLATION LEVEL SERIALIZABLE
+           END-EXEC
+           PERFORM CLASSIFY-SQL-RESULT
+           IF WS-ATTEMPT-RESULT NOT = "OK"
+               PERFORM ROLLBACK-QUIET
+               EXIT PARAGRAPH
+           END-IF
+           IF WS-FAULT-REMAINING > 0
+               SUBTRACT 1 FROM WS-FAULT-REMAINING
+               MOVE "CONFLICT" TO WS-ATTEMPT-RESULT
+               PERFORM ROLLBACK-QUIET
+               EXIT PARAGRAPH
+           END-IF
+           MOVE WS-LOCK-ACCT-1 TO HV-ACCT-NUMBER
+           EXEC SQL
+               SELECT account_number INTO :HV-LOCK-READBACK
+                 FROM balances
+                WHERE account_number = :HV-ACCT-NUMBER
+                  FOR UPDATE
+           END-EXEC
+           PERFORM CLASSIFY-SQL-RESULT
+           IF WS-ATTEMPT-RESULT NOT = "OK"
+               PERFORM ROLLBACK-QUIET
+               EXIT PARAGRAPH
+           END-IF
+           MOVE WS-LOCK-ACCT-2 TO HV-ACCT-NUMBER
+           EXEC SQL
+               SELECT account_number INTO :HV-LOCK-READBACK
+                 FROM balances
+                WHERE account_number = :HV-ACCT-NUMBER
+                  FOR UPDATE
+           END-EXEC
+           PERFORM CLASSIFY-SQL-RESULT
+           IF WS-ATTEMPT-RESULT NOT = "OK"
+               PERFORM ROLLBACK-QUIET
+               EXIT PARAGRAPH
+           END-IF
+           MOVE WS-TXN-ID         TO HV-TXN-ID
+           PERFORM BUILD-HV-BUSINESS-DATE
+           MOVE TDD-CATEGORY      TO HV-CATEGORY
+           MOVE TDD-PAYER-ACCT    TO HV-ACCT-NUMBER
+           IF TDD-PAYEE-ACCT = SPACES
+               MOVE SPACES TO HV-COUNTER-ACCT
+           ELSE
+               MOVE TDD-PAYEE-ACCT TO HV-COUNTER-ACCT
+           END-IF
+           MOVE TDD-AMOUNT-JPY    TO HV-AMOUNT-JPY
+           MOVE TDD-DESCRIPTION   TO HV-DESCRIPTION
+           MOVE "BATCH"          TO HV-SOURCE-SYSTEM
+           MOVE WS-BATCH-ID      TO HV-SOURCE-BATCH-ID
+           MOVE TDD-ORIGINAL-SEQ TO HV-SOURCE-SEQ
+           MOVE "PT"             TO HV-STATUS
+           EXEC SQL
+               INSERT INTO transactions
+                   (txn_id, business_date, system_ts, category,
+                    account_number, counter_account_number,
+                    amount_jpy, currency, description,
+                    source_system, source_batch_id, source_seq,
+                    status, created_by, created_ts)
+               VALUES
+                   (:HV-TXN-ID,
+                    CAST(:HV-BUSINESS-DATE AS DATE),
+                    CURRENT_TIMESTAMP,
+                    :HV-CATEGORY,
+                    :HV-ACCT-NUMBER,
+                    NULLIF(:HV-COUNTER-ACCT, '             '),
+                    :HV-AMOUNT-JPY,
+                    'JPY',
+                    NULLIF(:HV-DESCRIPTION, ' '),
+                    :HV-SOURCE-SYSTEM,
+                    :HV-SOURCE-BATCH-ID,
+                    :HV-SOURCE-SEQ,
+                    :HV-STATUS,
+                    '12-txnpost',
+                    CURRENT_TIMESTAMP)
+           END-EXEC
+           PERFORM CLASSIFY-SQL-RESULT
+           IF WS-ATTEMPT-RESULT NOT = "OK"
+               PERFORM ROLLBACK-QUIET
+               EXIT PARAGRAPH
+           END-IF
+           MOVE WS-POSTING-ID-DR TO HV-POSTING-ID
+           MOVE 1                TO HV-LINE-NO
+           MOVE WS-DR-ACCT       TO HV-ACCT-NUMBER
+           MOVE TDD-AMOUNT-JPY   TO HV-DEBIT-JPY
+           MOVE 0                TO HV-CREDIT-JPY
+           MOVE "DR"             TO HV-POSTING-ROLE
+           EXEC SQL
+               INSERT INTO postings
+                   (posting_id, txn_id, line_no, account_number,
+                    debit_jpy, credit_jpy, posting_role,
+                    business_date, created_ts)
+               VALUES
+                   (:HV-POSTING-ID, :HV-TXN-ID, :HV-LINE-NO,
+                    :HV-ACCT-NUMBER, :HV-DEBIT-JPY, :HV-CREDIT-JPY,
+                    :HV-POSTING-ROLE,
+                    CAST(:HV-BUSINESS-DATE AS DATE),
+                    CURRENT_TIMESTAMP)
+           END-EXEC
+           PERFORM CLASSIFY-SQL-RESULT
+           IF WS-ATTEMPT-RESULT NOT = "OK"
+               PERFORM ROLLBACK-QUIET
+               EXIT PARAGRAPH
+           END-IF
+           MOVE WS-POSTING-ID-CR TO HV-POSTING-ID
+           MOVE 2                TO HV-LINE-NO
+           MOVE WS-CR-ACCT       TO HV-ACCT-NUMBER
+           MOVE 0                TO HV-DEBIT-JPY
+           MOVE TDD-AMOUNT-JPY   TO HV-CREDIT-JPY
+           MOVE "CR"             TO HV-POSTING-ROLE
+           EXEC SQL
+               INSERT INTO postings
+                   (posting_id, txn_id, line_no, account_number,
+                    debit_jpy, credit_jpy, posting_role,
+                    business_date, created_ts)
+               VALUES
+                   (:HV-POSTING-ID, :HV-TXN-ID, :HV-LINE-NO,
+                    :HV-ACCT-NUMBER, :HV-DEBIT-JPY, :HV-CREDIT-JPY,
+                    :HV-POSTING-ROLE,
+                    CAST(:HV-BUSINESS-DATE AS DATE),
+                    CURRENT_TIMESTAMP)
+           END-EXEC
+           PERFORM CLASSIFY-SQL-RESULT
+           IF WS-ATTEMPT-RESULT NOT = "OK"
+               PERFORM ROLLBACK-QUIET
+               EXIT PARAGRAPH
+           END-IF
+           MOVE WS-DR-ACCT     TO HV-ACCT-NUMBER
+           MOVE TDD-AMOUNT-JPY TO HV-AMOUNT-JPY
+           EXEC SQL
+               UPDATE balances
+                  SET balance_jpy = balance_jpy - :HV-AMOUNT-JPY,
+                      last_txn_id = :HV-TXN-ID,
+                      last_business_date =
+                        CAST(:HV-BUSINESS-DATE AS DATE),
+                      updated_ts = CURRENT_TIMESTAMP
+                WHERE account_number = :HV-ACCT-NUMBER
+           END-EXEC
+           PERFORM CLASSIFY-SQL-RESULT
+           IF WS-ATTEMPT-RESULT NOT = "OK"
+               PERFORM ROLLBACK-QUIET
+               EXIT PARAGRAPH
+           END-IF
+           MOVE SQLERRD(3) TO WS-SQLERRD-3
+           IF WS-SQLERRD-3 NOT = 1
+               PERFORM ROLLBACK-QUIET
+               MOVE "FATAL" TO WS-ATTEMPT-RESULT
+               EXIT PARAGRAPH
+           END-IF
+           MOVE WS-CR-ACCT TO HV-ACCT-NUMBER
+           EXEC SQL
+               UPDATE balances
+                  SET balance_jpy = balance_jpy + :HV-AMOUNT-JPY,
+                      last_txn_id = :HV-TXN-ID,
+                      last_business_date =
+                        CAST(:HV-BUSINESS-DATE AS DATE),
+                      updated_ts = CURRENT_TIMESTAMP
+                WHERE account_number = :HV-ACCT-NUMBER
+           END-EXEC
+           PERFORM CLASSIFY-SQL-RESULT
+           IF WS-ATTEMPT-RESULT NOT = "OK"
+               PERFORM ROLLBACK-QUIET
+               EXIT PARAGRAPH
+           END-IF
+           MOVE SQLERRD(3) TO WS-SQLERRD-3
+           IF WS-SQLERRD-3 NOT = 1
+               PERFORM ROLLBACK-QUIET
+               MOVE "FATAL" TO WS-ATTEMPT-RESULT
+               EXIT PARAGRAPH
+           END-IF
+           PERFORM BUILD-PER-TXN-AUDIT
+           PERFORM INSERT-OUTBOX-INTENT
+           IF WS-ATTEMPT-RESULT NOT = "OK"
+               PERFORM ROLLBACK-QUIET
+               EXIT PARAGRAPH
+           END-IF
+           EXEC SQL COMMIT END-EXEC
+           PERFORM CLASSIFY-COMMIT-RESULT.
+
+       CLASSIFY-SQL-RESULT.
+           IF SQLCODE = 0
+               MOVE "OK" TO WS-ATTEMPT-RESULT
+           ELSE
+               IF SQLSTATE = "40001" OR SQLSTATE = "40P01"
+                   MOVE "CONFLICT" TO WS-ATTEMPT-RESULT
+               ELSE
+                   MOVE "DEFER" TO WS-ATTEMPT-RESULT
+               END-IF
+           END-IF.
+
+       CLASSIFY-COMMIT-RESULT.
+           IF SQLCODE = 0 OR SQLCODE = 100
+               MOVE "OK" TO WS-ATTEMPT-RESULT
+           ELSE
+               IF SQLSTATE = "40001" OR SQLSTATE = "40P01"
+                   MOVE "CONFLICT" TO WS-ATTEMPT-RESULT
+               ELSE
+                   MOVE "INDOUBT" TO WS-ATTEMPT-RESULT
+                   MOVE "12-txnpost" TO WS-LOG-SUBSYSTEM
+                   MOVE "WARN " TO WS-LOG-LEVEL
+                   STRING "anomalous commit failure sqlstate="
+                          SQLSTATE " txn=" WS-TXN-ID
+                          DELIMITED BY SIZE INTO WS-LOG-MESSAGE
+                   PERFORM EMIT-LOG
+               END-IF
+           END-IF.
+
+       ROLLBACK-QUIET.
+           EXEC SQL ROLLBACK END-EXEC.
+
+       BACKOFF-SLEEP.
+           MOVE 1 TO WS-BACKOFF-MULT
+           IF WS-RETRY-COUNT > 1
+               COMPUTE WS-BACKOFF-N = WS-RETRY-COUNT - 1
+               PERFORM WS-BACKOFF-N TIMES
+                   COMPUTE WS-BACKOFF-MULT = WS-BACKOFF-MULT * 2
+               END-PERFORM
+           END-IF
+           COMPUTE WS-BACKOFF-MS = WS-BACKOFF-BASE-MS * WS-BACKOFF-MULT
+           IF WS-BACKOFF-MS > WS-BACKOFF-CAP-MS
+               MOVE WS-BACKOFF-CAP-MS TO WS-BACKOFF-MS
+           END-IF
+           COMPUTE WS-JITTER-MS =
+               FUNCTION RANDOM * WS-BACKOFF-BASE-MS
+           COMPUTE WS-BACKOFF-MS = WS-BACKOFF-MS + WS-JITTER-MS
+           COMPUTE WS-BACKOFF-NANOS = WS-BACKOFF-MS * 1000000
+           IF WS-BACKOFF-NANOS > 0
+               CALL "CBL_OC_NANOSLEEP" USING WS-BACKOFF-NANOS
+           END-IF.
+
+       COMMIT-IN-DOUBT-RESOLVE.
+           PERFORM RECONNECT-PG
+           IF NOT WS-CONNECTED
+               PERFORM WRITE-TO-RECON-DEFER
+               EXIT PARAGRAPH
+           END-IF
+           MOVE WS-TXN-ID TO HV-TXN-ID
+           EXEC SQL
+               SELECT 1 INTO :HV-EXISTS-CHECK
+                 FROM transactions
+                WHERE txn_id = :HV-TXN-ID
+           END-EXEC
+           IF SQLCODE = 0
+               ADD 1 TO WS-IN-DOUBT-RESOLVED
+               MOVE "12-txnpost" TO WS-LOG-SUBSYSTEM
+               MOVE "INFO " TO WS-LOG-LEVEL
+               STRING "in-doubt resolved as committed txn="
+                      WS-TXN-ID
+                      DELIMITED BY SIZE INTO WS-LOG-MESSAGE
+               PERFORM EMIT-LOG
+           ELSE
+               PERFORM WRITE-TO-RECON-DEFER
+           END-IF.
+
+       RECONNECT-PG.
+           IF WS-CONNECTED
+               EXEC SQL DISCONNECT ALL END-EXEC
+               MOVE "N" TO WS-CONN-FLAG
+           END-IF
+           EXEC SQL
+               CONNECT :HV-DB-USER IDENTIFIED BY :HV-DB-PASS
+                   USING :HV-DB-NAME
+           END-EXEC
+           IF SQLCODE = 0
+               SET WS-CONNECTED TO TRUE
+           END-IF.
+
+       ROLLBACK-AND-DEFER.
+           EXEC SQL ROLLBACK END-EXEC
+           PERFORM WRITE-TO-RECON-DEFER.
+
+       ROLLBACK-AND-ABORT-BATCH.
+           EXEC SQL ROLLBACK END-EXEC
+           SET TXPR-FATAL TO TRUE.
+
+       WRITE-TO-RECON-DEFER.
+           IF NOT WS-RECON-DEFER-IS-OPEN
+               OPEN OUTPUT TXN-RECON-DEFER-FILE
+               IF WS-FS-RECON = "00"
+                   SET WS-RECON-DEFER-IS-OPEN TO TRUE
+               ELSE
+                   SET TXPR-IO-FAIL TO TRUE
+                   EXIT PARAGRAPH
+               END-IF
+           END-IF
+           WRITE TXN-RECON-DEFER-REC FROM TXN-DECODED-REC
+           ADD 1 TO WS-RECON-DEFER-COUNT
+           MOVE WS-TXN-ID TO WS-RECON-DEFER-LAST-TXN-ID
+           SET WS-TXN-IS-DEFERRED TO TRUE.
+
+       WRITE-DORMANCY-REPAIR.
+           IF NOT WS-DORM-REPAIR-IS-OPEN
+               OPEN EXTEND DORMANCY-REPAIR-FILE
+               IF WS-FS-DORM = "35"
+                   OPEN OUTPUT DORMANCY-REPAIR-FILE
+               END-IF
+               IF WS-FS-DORM = "00"
+                   SET WS-DORM-REPAIR-IS-OPEN TO TRUE
+               ELSE
+                   EXIT PARAGRAPH
+               END-IF
+           END-IF
+           MOVE WS-CURRENT-ACCT-NUMBER TO DRMR-ACCT-NUMBER
+           MOVE WS-BUSINESS-DATE       TO DRMR-BUSINESS-DATE
+           MOVE 1                      TO DRMR-ATTEMPT-COUNT
+           MOVE WS-ACCT-UPD-DORM-RC    TO DRMR-REASON-TEXT
+           MOVE WS-BATCH-ID            TO DRMR-SOURCE-BATCH-ID
+           MOVE FUNCTION CURRENT-DATE(1:19) TO DRMR-CREATED-TS
+           WRITE DRMR-REC.
+
+       REJECT-TO-ERROR-FILE.
+           MOVE TDD-SEQ              TO TEF-ORIG-SEQ
+           MOVE WS-TXN-REJECT-REASON TO TEF-REASON-CODE
+           STRING WS-TXN-REJECT-REASON " "
+                  "txn=" WS-TXN-ID " "
+                  "acct=" TDD-PAYER-ACCT
+                  DELIMITED BY SIZE INTO TEF-REASON-TEXT
+           MOVE TXN-DECODED-REC      TO TEF-ORIG-REC
+           WRITE TXN-ERROR-FD-REC.
+
+       TALLY-HARD-REJECT.
+           ADD 1 TO WS-HARD-REJECTED
+           EVALUATE WS-TXN-REJECT-REASON
+               WHEN "E004" ADD 1 TO WS-E004
+               WHEN "E005" ADD 1 TO WS-E005
+               WHEN "E006" ADD 1 TO WS-E006
+               WHEN "E020" ADD 1 TO WS-E020
+               WHEN "E021" ADD 1 TO WS-E021
+               WHEN "E022" ADD 1 TO WS-E022
+               WHEN "E023" ADD 1 TO WS-E023
+               WHEN "E024" ADD 1 TO WS-E024
+               WHEN "E025" ADD 1 TO WS-E025
+               WHEN OTHER  CONTINUE
+           END-EVALUATE.
+
+       BUILD-PER-TXN-AUDIT.
+           MOVE "12-txnpost" TO WS-AUD-SUBSYSTEM
+           MOVE "TXN_POSTED" TO WS-AUD-ACTION
+           MOVE "SYSTEM"     TO WS-AUD-ACTOR
+           MOVE "TXN"        TO WS-AUD-TARGET-TYPE
+           MOVE WS-TXN-ID    TO WS-AUD-TARGET-ID
+           MOVE "I"          TO WS-AUD-SEVERITY
+           MOVE WS-BUSINESS-DATE TO WS-AUD-BUSINESS-DATE
+           MOVE SPACES TO WS-AUD-PAYLOAD-JSON
+           STRING '{"txn_id":"' WS-TXN-ID
+                  '","cat":"' TDD-CATEGORY
+                  '","acct":"' TDD-PAYER-ACCT
+                  '"}'
+                  DELIMITED BY SIZE INTO WS-AUD-PAYLOAD-JSON
+           MOVE SPACES TO WS-AUD-EVENT-KEY
+           STRING FUNCTION TRIM(WS-AUD-ACTION) ":"
+                  FUNCTION TRIM(WS-AUD-TARGET-ID)
+                  DELIMITED BY SIZE INTO WS-AUD-EVENT-KEY.
+
+       INSERT-OUTBOX-INTENT.
+           MOVE WS-AUD-SUBSYSTEM    TO OBX-SUBSYSTEM
+           MOVE WS-AUD-ACTION       TO OBX-ACTION
+           MOVE WS-AUD-ACTOR        TO OBX-ACTOR
+           MOVE WS-AUD-TARGET-TYPE  TO OBX-TARGET-TYPE
+           MOVE WS-AUD-TARGET-ID    TO OBX-TARGET-ID
+           MOVE WS-AUD-SEVERITY     TO OBX-SEVERITY
+           MOVE WS-AUD-EVENT-KEY    TO OBX-EVENT-KEY
+           IF WS-AUD-PAYLOAD-JSON = SPACES
+               MOVE "{}" TO OBX-PAYLOAD
+           ELSE
+               MOVE WS-AUD-PAYLOAD-JSON TO OBX-PAYLOAD
+           END-IF
+           MOVE SPACES TO OBX-BDATE-TXT
+           STRING WS-AUD-BUSINESS-DATE(1:4) DELIMITED BY SIZE
+                  "-"                       DELIMITED BY SIZE
+                  WS-AUD-BUSINESS-DATE(5:2) DELIMITED BY SIZE
+                  "-"                       DELIMITED BY SIZE
+                  WS-AUD-BUSINESS-DATE(7:2) DELIMITED BY SIZE
+                  INTO OBX-BDATE-TXT
+           END-STRING
+           EXEC SQL
+               INSERT INTO audit_outbox (
+                   business_date, subsystem, action, actor,
+                   target_type, target_id, payload_json,
+                   severity, event_key
+               ) VALUES (
+                   CAST(:OBX-BDATE-TXT AS date),
+                   :OBX-SUBSYSTEM, :OBX-ACTION, :OBX-ACTOR,
+                   :OBX-TARGET-TYPE, :OBX-TARGET-ID,
+                   CAST(:OBX-PAYLOAD AS jsonb),
+                   :OBX-SEVERITY, :OBX-EVENT-KEY
+               )
+           END-EXEC
+           PERFORM CLASSIFY-SQL-RESULT.
+
+       EMIT-SUMMARY-AUDIT.
+           MOVE "12-txnpost"      TO WS-AUD-SUBSYSTEM
+           MOVE "POST_BATCH_DONE" TO WS-AUD-ACTION
+           MOVE "SYSTEM"          TO WS-AUD-ACTOR
+           MOVE "BATCH"           TO WS-AUD-TARGET-TYPE
+           MOVE WS-BATCH-ID       TO WS-AUD-TARGET-ID
+           MOVE "I"               TO WS-AUD-SEVERITY
+           MOVE WS-BUSINESS-DATE  TO WS-AUD-BUSINESS-DATE
+           MOVE SPACES TO WS-AUD-PAYLOAD-JSON
+           STRING '{"batch_id":"' WS-BATCH-ID
+                  '","status":"' TXPR-STATUS
+                  '","ser_retries":"' WS-SER-RETRIES-TOTAL
+                  '","ser_retry_ok":"' WS-SER-RETRY-SUCCEEDED
+                  '","ser_exhausted":"' WS-SER-EXHAUSTED-DEFER
+                  '"}'
+                  DELIMITED BY SIZE INTO WS-AUD-PAYLOAD-JSON
+           MOVE SPACES TO WS-AUD-EVENT-KEY
+           CALL "AUD-WRITE" USING WS-AUD-ROW WS-AUD-RC
+           ON EXCEPTION CONTINUE
+           END-CALL.
+
+       EMIT-LOG.
+           CALL "SHARED-LOG" USING WS-LOG-MSG WS-LOG-RC
+           ON EXCEPTION CONTINUE
+           END-CALL.
+
+          COPY "aud-drain-procs.cpy".
+
+       BUILD-HV-BUSINESS-DATE.
+           DIVIDE WS-BUSINESS-DATE BY 10000 GIVING WS-DATE-Y
+           COMPUTE WS-DATE-M =
+               FUNCTION MOD(WS-BUSINESS-DATE / 100, 100)
+           COMPUTE WS-DATE-D = FUNCTION MOD(WS-BUSINESS-DATE, 100)
+           MOVE "0000-00-00" TO HV-BUSINESS-DATE
+           STRING WS-DATE-Y "-" WS-DATE-M "-" WS-DATE-D
+                  DELIMITED BY SIZE INTO HV-BUSINESS-DATE.
+
+       PUBLISH-COUNTERS.
+           MOVE WS-RECORDS-READ      TO TXPR-RECORDS-READ
+           MOVE WS-RECORDS-ATTEMPTED TO TXPR-RECORDS-ATTEMPTED
+           MOVE WS-RECORDS-POSTED    TO TXPR-RECORDS-POSTED
+           MOVE WS-ALREADY-SKIPPED   TO TXPR-ALREADY-POSTED-SKIPPED
+           MOVE WS-HARD-REJECTED     TO TXPR-HARD-REJECTED
+           MOVE WS-RECON-DEFER-COUNT TO TXPR-RECON-DEFERRED
+           MOVE WS-IN-DOUBT-RESOLVED TO TXPR-IN-DOUBT-RESOLVED
+           MOVE WS-DORM-REPAIR-COUNT TO TXPR-DORMANCY-DEFERRED
+           MOVE WS-E004 TO TXPR-REASON-E004
+           MOVE WS-E005 TO TXPR-REASON-E005
+           MOVE WS-E006 TO TXPR-REASON-E006
+           MOVE WS-E020 TO TXPR-REASON-E020
+           MOVE WS-E021 TO TXPR-REASON-E021
+           MOVE WS-E022 TO TXPR-REASON-E022
+           MOVE WS-E023 TO TXPR-REASON-E023
+           MOVE WS-E024 TO TXPR-REASON-E024
+           MOVE WS-E025 TO TXPR-REASON-E025
+           DISPLAY "ser_metrics retries=" WS-SER-RETRIES-TOTAL
+                   " retry_ok=" WS-SER-RETRY-SUCCEEDED
+                   " exhausted=" WS-SER-EXHAUSTED-DEFER.
+
+       SET-FINAL-STATUS.
+           EVALUATE TRUE
+               WHEN TXPR-INVALID   CONTINUE
+               WHEN TXPR-IO-FAIL   CONTINUE
+               WHEN TXPR-FATAL     CONTINUE
+               WHEN WS-RECON-DEFER-COUNT > 0
+                   SET TXPR-PARTIAL-RECON TO TRUE
+               WHEN OTHER
+                   SET TXPR-OK TO TRUE
+           END-EVALUATE.
+
+       END PROGRAM TXPOST-RUN-BATCH.

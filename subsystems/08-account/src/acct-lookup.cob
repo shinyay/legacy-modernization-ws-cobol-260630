@@ -1,0 +1,63 @@
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. ACCT-LOOKUP.
+       ENVIRONMENT DIVISION.
+       INPUT-OUTPUT SECTION.
+       FILE-CONTROL.
+           SELECT ACCOUNT-FILE
+               ASSIGN TO "/workspace/subsystems/08-account/data/account.idx"
+               ORGANIZATION IS INDEXED
+               ACCESS MODE IS RANDOM
+               RECORD KEY IS ACCT-REC-NUMBER
+               ALTERNATE RECORD KEY IS ACCT-REC-CUST-ID WITH DUPLICATES
+               FILE STATUS IS WS-FS.
+
+       DATA DIVISION.
+       FILE SECTION.
+       COPY "fd-account.cpy".
+
+       WORKING-STORAGE SECTION.
+       01  WS-FS  PIC X(2).
+
+       LINKAGE SECTION.
+       COPY "acct-api.cpy".
+
+       PROCEDURE DIVISION USING ACCT-LOOKUP-INPUT
+                                ACCT-LOOKUP-OUTPUT
+                                ACCT-LOOKUP-STATUS.
+       MAIN-LOGIC.
+           MOVE "00" TO ACCT-LOOKUP-STATUS
+           MOVE ZERO TO ACCT-LO-NUMBER ACCT-LO-CUST-ID
+                       ACCT-LO-PRODUCT-CODE ACCT-LO-BRANCH-CODE
+                       ACCT-LO-OPENED-DATE ACCT-LO-CLOSED-DATE
+                       ACCT-LO-OVERDRAFT-LIMIT ACCT-LO-TERM-DAYS
+                       ACCT-LO-DORMANCY-DATE
+                       ACCT-LO-CREATED-TS ACCT-LO-UPDATED-TS
+           MOVE SPACES TO ACCT-LO-STATUS ACCT-LO-FILLER
+
+           OPEN INPUT ACCOUNT-FILE
+           IF WS-FS NOT = "00"
+               MOVE "12" TO ACCT-LOOKUP-STATUS GOBACK
+           END-IF
+
+           MOVE ACCT-LOOKUP-NUMBER TO ACCT-REC-NUMBER
+           READ ACCOUNT-FILE
+               INVALID KEY
+                   MOVE "04" TO ACCT-LOOKUP-STATUS
+               NOT INVALID KEY
+                   MOVE ACCT-REC-NUMBER       TO ACCT-LO-NUMBER
+                   MOVE ACCT-REC-CUST-ID      TO ACCT-LO-CUST-ID
+                   MOVE ACCT-REC-PRODUCT-CODE TO ACCT-LO-PRODUCT-CODE
+                   MOVE ACCT-REC-BRANCH-CODE  TO ACCT-LO-BRANCH-CODE
+                   MOVE ACCT-REC-OPENED-DATE  TO ACCT-LO-OPENED-DATE
+                   MOVE ACCT-REC-CLOSED-DATE  TO ACCT-LO-CLOSED-DATE
+                   MOVE ACCT-REC-STATUS       TO ACCT-LO-STATUS
+                   MOVE ACCT-REC-OVERDRAFT    TO ACCT-LO-OVERDRAFT-LIMIT
+                   MOVE ACCT-REC-TERM-DAYS    TO ACCT-LO-TERM-DAYS
+                   MOVE ACCT-REC-DORMANCY-DATE TO ACCT-LO-DORMANCY-DATE
+                   MOVE ACCT-REC-CREATED-TS   TO ACCT-LO-CREATED-TS
+                   MOVE ACCT-REC-UPDATED-TS   TO ACCT-LO-UPDATED-TS
+                   MOVE "00" TO ACCT-LOOKUP-STATUS
+           END-READ
+
+           CLOSE ACCOUNT-FILE
+           GOBACK.

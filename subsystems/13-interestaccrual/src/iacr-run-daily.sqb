@@ -1,0 +1,339 @@
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. IACR-RUN-DAILY.
+       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+
+       01  WS-CONN-FLAG              PIC X(1) VALUE "N".
+           88  WS-CONNECTED                  VALUE "Y".
+
+       01  WS-EOF-FLAG               PIC X(1) VALUE "N".
+           88  WS-EOF                        VALUE "Y".
+
+       01  WS-CASH-ACCT              PIC 9(13) VALUE 0010010000001.
+       01  WS-CLEAR-ACCT             PIC 9(13) VALUE 0010010000002.
+       01  WS-INT-EXP-ACCT           PIC 9(13) VALUE 0010010000003.
+       01  WS-FEE-REV-ACCT           PIC 9(13) VALUE 0010010000004.
+
+           COPY "acct-api.cpy".
+
+           COPY "prod-api.cpy".
+
+           COPY "irate-api.cpy".
+
+           COPY "aud-write-api.cpy".
+
+           COPY "shared-log-api.cpy".
+
+       01  WS-COMPUTE-BUF.
+           05  WS-BAL-JPY            PIC S9(15) COMP-3 VALUE 0.
+           05  WS-RATE-MICRO         PIC 9(7)          VALUE 0.
+           05  WS-ACCRUED-DEC        PIC S9(15)V9(6) COMP-3 VALUE 0.
+           05  WS-ACCRUED-JPY        PIC S9(15) COMP-3 VALUE 0.
+
+       01  WS-CTR.
+           05  WS-CTR-SCANNED        PIC 9(7) VALUE 0.
+           05  WS-CTR-INSERTED       PIC 9(7) VALUE 0.
+           05  WS-CTR-INELIG-STATE   PIC 9(7) VALUE 0.
+           05  WS-CTR-INELIG-PROD    PIC 9(7) VALUE 0.
+           05  WS-CTR-INELIG-BAL     PIC 9(7) VALUE 0.
+           05  WS-CTR-INELIG-RATE    PIC 9(7) VALUE 0.
+           05  WS-CTR-ALREADY        PIC 9(7) VALUE 0.
+           05  WS-CTR-SYS-SKIP       PIC 9(7) VALUE 0.
+
+       01  WS-TS-START               PIC 9(14).
+       01  WS-TS-END                 PIC 9(14).
+       01  WS-DURATION-SEC           PIC 9(5) VALUE 0.
+
+       01  WS-BDATE-NUM              PIC 9(8) VALUE 0.
+       01  WS-DATE-Y                 PIC 9(4).
+       01  WS-DATE-M                 PIC 9(2).
+       01  WS-DATE-D                 PIC 9(2).
+
+           EXEC SQL BEGIN DECLARE SECTION END-EXEC.
+
+       01  HV-DB-NAME                PIC X(80).
+       01  HV-DB-USER                PIC X(32).
+       01  HV-DB-PASS                PIC X(32).
+
+       01  HV-BUSINESS-DATE          PIC X(10).
+       01  HV-ACCT-NUMBER            PIC X(13).
+       01  HV-BAL-JPY-SQL            PIC S9(15) COMP-3.
+       01  HV-EXISTS-CHECK           PIC S9(4)  COMP-3.
+
+       01  HV-PRODUCT-CODE           PIC X(3).
+       01  HV-PRINCIPAL-JPY          PIC S9(15) COMP-3.
+       01  HV-RATE-DEC               PIC S9(3)V9(4) COMP-3.
+       01  HV-DAYS                   PIC S9(3)  COMP-3.
+       01  HV-ACCRUED-JPY-SQL        PIC S9(15) COMP-3.
+
+           EXEC SQL END DECLARE SECTION END-EXEC.
+
+           EXEC SQL INCLUDE sqlca END-EXEC.
+
+       LINKAGE SECTION.
+           COPY "iacr-api.cpy".
+
+       PROCEDURE DIVISION USING IACR-RUN-INPUT IACR-RUN-OUTPUT.
+       MAIN-LOGIC.
+           PERFORM INIT-OUTPUT
+           PERFORM CAPTURE-START-TS
+           PERFORM VALIDATE-INPUT
+           IF NOT IACR-RUN-OK GOBACK END-IF
+           PERFORM DB-CONNECT
+           IF NOT WS-CONNECTED
+               SET IACR-RUN-IO-FAIL TO TRUE
+               GOBACK
+           END-IF
+           PERFORM BUILD-HV-DATE
+           EXEC SQL DECLARE BALCURSOR CURSOR FOR
+               SELECT account_number, balance_jpy
+                 FROM balances
+                ORDER BY account_number
+           END-EXEC
+           PERFORM OPEN-CURSOR
+           IF NOT IACR-RUN-OK
+               PERFORM CLEANUP-AND-EXIT
+               GOBACK
+           END-IF
+           PERFORM PROCESS-LOOP UNTIL WS-EOF
+           PERFORM CLOSE-CURSOR
+           PERFORM EMIT-SUMMARY-AUDIT
+           PERFORM POPULATE-OUTPUT
+           PERFORM CAPTURE-DURATION
+           PERFORM CLEANUP-AND-EXIT
+           GOBACK.
+
+       INIT-OUTPUT.
+           SET IACR-RUN-OK TO TRUE
+           MOVE 0 TO IACR-OUT-ACCOUNTS-SCANNED
+                     IACR-OUT-ACCRUALS-INSERTED
+                     IACR-OUT-INELIGIBLE-STATE
+                     IACR-OUT-INELIGIBLE-PROD
+                     IACR-OUT-INELIGIBLE-BALANCE
+                     IACR-OUT-INELIGIBLE-RATE
+                     IACR-OUT-ALREADY-ACCRUED
+                     IACR-OUT-SYSTEM-SKIPPED
+                     IACR-OUT-DURATION-SEC
+           MOVE 0 TO WS-CTR-SCANNED
+                     WS-CTR-INSERTED
+                     WS-CTR-INELIG-STATE
+                     WS-CTR-INELIG-PROD
+                     WS-CTR-INELIG-BAL
+                     WS-CTR-INELIG-RATE
+                     WS-CTR-ALREADY
+                     WS-CTR-SYS-SKIP
+           MOVE "N" TO WS-CONN-FLAG WS-EOF-FLAG.
+
+       VALIDATE-INPUT.
+           IF IACR-RUN-BATCH-ID = SPACES OR
+              IACR-RUN-BUSINESS-DATE = 0
+               SET IACR-RUN-INVALID-INPUT TO TRUE
+           END-IF.
+
+       DB-CONNECT.
+           MOVE "banking" TO HV-DB-NAME
+           MOVE "cobol"   TO HV-DB-USER
+           MOVE "cobol"   TO HV-DB-PASS
+           EXEC SQL
+               CONNECT :HV-DB-USER IDENTIFIED BY :HV-DB-PASS
+                   USING :HV-DB-NAME
+           END-EXEC
+           IF SQLCODE = 0
+               SET WS-CONNECTED TO TRUE
+           END-IF.
+
+       BUILD-HV-DATE.
+           MOVE IACR-RUN-BUSINESS-DATE TO WS-BDATE-NUM
+           DIVIDE WS-BDATE-NUM BY 10000 GIVING WS-DATE-Y
+           COMPUTE WS-DATE-M = FUNCTION MOD(WS-BDATE-NUM / 100, 100)
+           COMPUTE WS-DATE-D = FUNCTION MOD(WS-BDATE-NUM, 100)
+           MOVE "0000-00-00" TO HV-BUSINESS-DATE
+           STRING WS-DATE-Y "-" WS-DATE-M "-" WS-DATE-D
+                  DELIMITED BY SIZE INTO HV-BUSINESS-DATE.
+
+       OPEN-CURSOR.
+           EXEC SQL OPEN BALCURSOR END-EXEC
+           IF SQLCODE NOT = 0
+               SET IACR-RUN-IO-FAIL TO TRUE
+           END-IF.
+
+       PROCESS-LOOP.
+           EXEC SQL
+               FETCH BALCURSOR INTO :HV-ACCT-NUMBER, :HV-BAL-JPY-SQL
+           END-EXEC
+           IF SQLCODE = 100
+               SET WS-EOF TO TRUE
+               EXIT PARAGRAPH
+           END-IF
+           IF SQLCODE NOT = 0
+               SET IACR-RUN-PARTIAL TO TRUE
+               SET WS-EOF TO TRUE
+               EXIT PARAGRAPH
+           END-IF
+           ADD 1 TO WS-CTR-SCANNED
+           PERFORM PROCESS-ONE-ACCT.
+
+       PROCESS-ONE-ACCT.
+           IF HV-ACCT-NUMBER = "0010010000001" OR
+              HV-ACCT-NUMBER = "0010010000002" OR
+              HV-ACCT-NUMBER = "0010010000003" OR
+              HV-ACCT-NUMBER = "0010010000004"
+               ADD 1 TO WS-CTR-SYS-SKIP
+               EXIT PARAGRAPH
+           END-IF
+           PERFORM CALL-ACCT-EXISTS
+           IF NOT ACCT-EXISTS-YES
+               ADD 1 TO WS-CTR-INELIG-STATE
+               EXIT PARAGRAPH
+           END-IF
+           IF ACCT-EXISTS-STATUS-CODE = "P" OR
+              ACCT-EXISTS-STATUS-CODE = "C"
+               ADD 1 TO WS-CTR-INELIG-STATE
+               EXIT PARAGRAPH
+           END-IF
+           PERFORM CALL-PROD-LOOKUP
+           IF NOT PRD-STATUS-OK OR PRD-OUT-INTEREST-TYPE = "N"
+               ADD 1 TO WS-CTR-INELIG-PROD
+               EXIT PARAGRAPH
+           END-IF
+           IF HV-BAL-JPY-SQL <= 0
+               ADD 1 TO WS-CTR-INELIG-BAL
+               EXIT PARAGRAPH
+           END-IF
+           PERFORM CALL-IRATE-LOOKUP
+           IF NOT IR-OK
+               ADD 1 TO WS-CTR-INELIG-RATE
+               EXIT PARAGRAPH
+           END-IF
+           PERFORM CHECK-I1-IDEMPOTENCY
+           IF SQLCODE = 0
+               ADD 1 TO WS-CTR-ALREADY
+               EXIT PARAGRAPH
+           END-IF
+           PERFORM COMPUTE-ACCRUAL
+           PERFORM INSERT-ACCRUAL
+           IF SQLCODE = 0
+               ADD 1 TO WS-CTR-INSERTED
+           ELSE
+               IF SQLCODE = -803
+                   ADD 1 TO WS-CTR-ALREADY
+               ELSE
+                   ADD 1 TO WS-CTR-INELIG-RATE
+                   SET IACR-RUN-PARTIAL TO TRUE
+               END-IF
+           END-IF.
+
+       CALL-ACCT-EXISTS.
+           MOVE HV-ACCT-NUMBER TO ACCT-EXISTS-NUMBER
+           MOVE "N" TO ACCT-EXISTS-FOUND
+           CALL "ACCT-EXISTS" USING ACCT-EXISTS-INPUT
+                                    ACCT-EXISTS-OUTPUT
+                                    ACCT-EXISTS-API-STATUS
+               ON EXCEPTION
+                   MOVE "N" TO ACCT-EXISTS-FOUND
+           END-CALL.
+
+       CALL-PROD-LOOKUP.
+           MOVE ACCT-EXISTS-PRODUCT-CODE TO PRD-IN-CODE
+           MOVE 16 TO PRD-OUT-STATUS
+           CALL "PROD-LOOKUP" USING PROD-INPUT PROD-OUTPUT
+               ON EXCEPTION
+                   MOVE 16 TO PRD-OUT-STATUS
+           END-CALL.
+
+       CALL-IRATE-LOOKUP.
+           MOVE PRD-IN-CODE TO IR-IN-PRODUCT
+           MOVE 1            TO IR-IN-TIER
+           COMPUTE WS-DATE-Y = IACR-RUN-BUSINESS-DATE / 10000
+           COMPUTE IR-IN-EFFECTIVE = WS-DATE-Y * 10000 + 101
+           MOVE 16 TO IR-OUT-STATUS
+           CALL "IRATE-LOOKUP" USING IRATE-INPUT IRATE-OUTPUT
+               ON EXCEPTION
+                   MOVE 16 TO IR-OUT-STATUS
+           END-CALL.
+
+       CHECK-I1-IDEMPOTENCY.
+           EXEC SQL
+               SELECT 1 INTO :HV-EXISTS-CHECK
+                 FROM interest_accruals
+                WHERE business_date = CAST(:HV-BUSINESS-DATE AS DATE)
+                  AND account_number = :HV-ACCT-NUMBER
+           END-EXEC.
+
+       COMPUTE-ACCRUAL.
+           MOVE HV-BAL-JPY-SQL TO WS-BAL-JPY
+           MOVE IR-OUT-RATE-MICRO TO WS-RATE-MICRO
+           COMPUTE WS-ACCRUED-JPY ROUNDED MODE IS NEAREST-EVEN =
+               (WS-BAL-JPY * WS-RATE-MICRO) / 365000000.
+
+       INSERT-ACCRUAL.
+           MOVE HV-BAL-JPY-SQL TO HV-PRINCIPAL-JPY
+           MOVE WS-ACCRUED-JPY TO HV-ACCRUED-JPY-SQL
+           MOVE PRD-IN-CODE TO HV-PRODUCT-CODE
+           COMPUTE HV-RATE-DEC = IR-OUT-RATE-MICRO / 10000
+           MOVE 1 TO HV-DAYS
+           EXEC SQL
+               INSERT INTO interest_accruals
+                   (business_date, account_number, product_code,
+                    principal_jpy, rate, days, accrued_jpy,
+                    status, created_ts)
+               VALUES
+                   (CAST(:HV-BUSINESS-DATE AS DATE),
+                    :HV-ACCT-NUMBER,
+                    :HV-PRODUCT-CODE,
+                    :HV-PRINCIPAL-JPY,
+                    :HV-RATE-DEC,
+                    :HV-DAYS,
+                    :HV-ACCRUED-JPY-SQL,
+                    'AC',
+                    CURRENT_TIMESTAMP)
+           END-EXEC.
+
+       CLOSE-CURSOR.
+           EXEC SQL CLOSE BALCURSOR END-EXEC
+           EXEC SQL COMMIT END-EXEC.
+
+       EMIT-SUMMARY-AUDIT.
+           MOVE "13-interestaccrual" TO WS-AUD-SUBSYSTEM
+           MOVE "IACR_DAILY_SUMMARY" TO WS-AUD-ACTION
+           MOVE "SYSTEM"             TO WS-AUD-ACTOR
+           MOVE "BATCH"              TO WS-AUD-TARGET-TYPE
+           MOVE IACR-RUN-BATCH-ID    TO WS-AUD-TARGET-ID
+           MOVE "I"                  TO WS-AUD-SEVERITY
+           MOVE IACR-RUN-BUSINESS-DATE TO WS-AUD-BUSINESS-DATE
+           MOVE SPACES TO WS-AUD-PAYLOAD-JSON
+           STRING '{"batch_id":"' IACR-RUN-BATCH-ID
+                  '","scanned":' WS-CTR-SCANNED
+                  ',"inserted":' WS-CTR-INSERTED
+                  ',"sys_skipped":' WS-CTR-SYS-SKIP
+                  '}'
+                  DELIMITED BY SIZE INTO WS-AUD-PAYLOAD-JSON
+           CALL "AUD-WRITE" USING WS-AUD-ROW WS-AUD-RC
+               ON EXCEPTION CONTINUE
+           END-CALL.
+
+       POPULATE-OUTPUT.
+           MOVE WS-CTR-SCANNED      TO IACR-OUT-ACCOUNTS-SCANNED
+           MOVE WS-CTR-INSERTED     TO IACR-OUT-ACCRUALS-INSERTED
+           MOVE WS-CTR-INELIG-STATE TO IACR-OUT-INELIGIBLE-STATE
+           MOVE WS-CTR-INELIG-PROD  TO IACR-OUT-INELIGIBLE-PROD
+           MOVE WS-CTR-INELIG-BAL   TO IACR-OUT-INELIGIBLE-BALANCE
+           MOVE WS-CTR-INELIG-RATE  TO IACR-OUT-INELIGIBLE-RATE
+           MOVE WS-CTR-ALREADY      TO IACR-OUT-ALREADY-ACCRUED
+           MOVE WS-CTR-SYS-SKIP     TO IACR-OUT-SYSTEM-SKIPPED.
+
+       CAPTURE-START-TS.
+           MOVE FUNCTION CURRENT-DATE(1:14) TO WS-TS-START.
+
+       CAPTURE-DURATION.
+           MOVE FUNCTION CURRENT-DATE(1:14) TO WS-TS-END
+           MOVE 0 TO WS-DURATION-SEC.
+
+       CLEANUP-AND-EXIT.
+           IF WS-CONNECTED
+               EXEC SQL DISCONNECT ALL END-EXEC
+               MOVE "N" TO WS-CONN-FLAG
+           END-IF.
+
+       END PROGRAM IACR-RUN-DAILY.

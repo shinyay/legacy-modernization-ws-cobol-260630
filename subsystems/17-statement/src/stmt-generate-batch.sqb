@@ -1,0 +1,680 @@
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. STMT-GENERATE-BATCH.
+       ENVIRONMENT DIVISION.
+       INPUT-OUTPUT SECTION.
+       FILE-CONTROL.
+           SELECT REPORT-FILE
+               ASSIGN TO WS-OUTPUT-PATH
+               ORGANIZATION IS LINE SEQUENTIAL
+               FILE STATUS IS WS-FS-RPT.
+           SELECT SUMMARY-FILE
+               ASSIGN TO WS-SUMMARY-PATH
+               ORGANIZATION IS LINE SEQUENTIAL
+               FILE STATUS IS WS-FS-SUM.
+
+       DATA DIVISION.
+       FILE SECTION.
+       FD  REPORT-FILE
+           REPORT IS STATEMENT-REPORT.
+       FD  SUMMARY-FILE.
+       01  SUMMARY-LINE              PIC X(120).
+
+       WORKING-STORAGE SECTION.
+
+       01  WS-FS-RPT                 PIC X(2).
+       01  WS-FS-SUM                 PIC X(2).
+
+       01  WS-CONN-FLAG              PIC X(1) VALUE "N".
+           88  WS-CONNECTED                  VALUE "Y".
+       01  WS-OUTPUT-PATH            PIC X(80).
+       01  WS-SUMMARY-PATH           PIC X(80).
+       01  WS-RPT-OPEN-FLAG          PIC X(1) VALUE "N".
+           88  WS-RPT-OPENED                 VALUE "Y".
+
+       01  WS-BDATE-NUM              PIC 9(8).
+       01  WS-DATE-Y                 PIC 9(4).
+       01  WS-DATE-M                 PIC 9(2).
+       01  WS-DATE-D                 PIC 9(2).
+       01  WS-PERIOD-START-NUM       PIC 9(8).
+       01  WS-PERIOD-END-NUM         PIC 9(8).
+       01  WS-OPENING-DATE-NUM       PIC 9(8).
+
+       01  WS-CUST-CACHE-COUNT       PIC 9(4) VALUE 0.
+       01  WS-CUST-CACHE.
+           05  WS-CUST-ENTRY OCCURS 500 TIMES.
+               10  WS-CC-ID          PIC 9(10).
+               10  WS-CC-NAME-KANJI  PIC X(60).
+       01  WS-BR-CACHE-COUNT         PIC 9(3) VALUE 0.
+       01  WS-CC-IDX                 PIC 9(4) VALUE 0.
+       01  WS-BR-CACHE.
+           05  WS-BR-ENTRY OCCURS 100 TIMES.
+               10  WS-BC-CODE        PIC X(3).
+               10  WS-BC-NAME-KANJI  PIC X(40).
+
+       01  WS-CURRENT-ACCT           PIC X(13).
+       01  WS-CURRENT-CUST-ID        PIC 9(10).
+       01  WS-CURRENT-CUST-NAME      PIC X(60).
+       01  WS-CURRENT-BRANCH-CODE    PIC X(3).
+       01  WS-CURRENT-BRANCH-NAME    PIC X(40).
+       01  WS-CURRENT-PRODUCT-CODE   PIC X(3).
+       01  WS-OPENING-BAL            PIC S9(15) COMP-3 VALUE 0.
+       01  WS-CLOSING-BAL            PIC S9(15) COMP-3 VALUE 0.
+       01  WS-RUNNING-BAL            PIC S9(15) COMP-3 VALUE 0.
+       01  WS-DISPLAY-PERIOD-START   PIC 9(8).
+       01  WS-DISPLAY-PERIOD-END     PIC 9(8).
+       01  WS-MODE-LABEL             PIC X(8).
+
+       01  WS-DETAIL-TXN-DATE        PIC 9(8).
+       01  WS-DETAIL-CAT             PIC X(2).
+       01  WS-DETAIL-SIGNED-AMT      PIC S9(15) COMP-3.
+       01  WS-DETAIL-DESCRIPTION     PIC X(60).
+       01  WS-DETAIL-BAL-AFTER       PIC S9(15) COMP-3.
+
+       01  WS-CTR.
+           05  WS-CTR-ACCT-PROCESSED PIC 9(7) VALUE 0.
+           05  WS-CTR-ACCT-EMPTY     PIC 9(7) VALUE 0.
+           05  WS-CTR-ACCT-SKIPPED   PIC 9(7) VALUE 0.
+           05  WS-CTR-LINES          PIC 9(10) VALUE 0.
+           05  WS-CTR-DETAIL-EMITTED PIC 9(10) VALUE 0.
+
+           COPY "aud-write-api.cpy".
+
+       01  WS-AUD-DISP               PIC ZZZZZZZZZZZZZZ9.
+
+       01  WS-ACCT-SNAP-COUNT        PIC 9(5) VALUE 0.
+       01  WS-ACCT-SNAPSHOT.
+           05  WS-AS-ENTRY OCCURS 1000 TIMES.
+               10  WS-AS-ACCT        PIC X(13).
+               10  WS-AS-CUST-ID     PIC 9(10).
+               10  WS-AS-BRANCH      PIC X(3).
+               10  WS-AS-PRODUCT     PIC X(3).
+       01  WS-ACCT-IDX               PIC 9(5).
+
+       01  WS-TXN-SNAP-COUNT         PIC 9(4) VALUE 0.
+       01  WS-TXN-SNAPSHOT.
+           05  WS-TS-ENTRY OCCURS 500 TIMES.
+               10  WS-TS-DATE        PIC 9(8).
+               10  WS-TS-CAT         PIC X(2).
+               10  WS-TS-AMT         PIC S9(15) COMP-3.
+               10  WS-TS-DESC        PIC X(60).
+               10  WS-TS-SIGN        PIC X(2).
+       01  WS-TXN-IDX                PIC 9(4).
+
+       EXEC SQL BEGIN DECLARE SECTION END-EXEC.
+
+       01  HV-DB-NAME                PIC X(80).
+       01  HV-DB-USER                PIC X(32).
+       01  HV-DB-PASS                PIC X(32).
+       01  HV-BUSINESS-DATE          PIC X(10).
+       01  HV-PERIOD-START           PIC X(10).
+       01  HV-PERIOD-END             PIC X(10).
+       01  HV-OPENING-DATE           PIC X(10).
+       01  HV-ACCT                   PIC X(13).
+       01  HV-CUST-ID                PIC 9(10).
+       01  HV-BRANCH                 PIC X(3).
+       01  HV-PRODUCT                PIC X(3).
+       01  HV-BALANCE                PIC S9(15) COMP-3.
+       01  HV-TXN-DATE               PIC X(10).
+       01  HV-TXN-CAT                PIC X(2).
+       01  HV-TXN-AMOUNT             PIC S9(15) COMP-3.
+       01  HV-TXN-DESC               PIC X(120).
+       01  HV-TXN-ROLE               PIC X(2).
+       01  HV-CUST-NAME              PIC X(60).
+       01  HV-BR-NAME                PIC X(40).
+
+       EXEC SQL END DECLARE SECTION END-EXEC.
+
+       EXEC SQL INCLUDE sqlca END-EXEC.
+
+       LINKAGE SECTION.
+           COPY "stmt-api.cpy".
+
+       REPORT SECTION.
+       RD  STATEMENT-REPORT
+           CONTROLS ARE FINAL WS-CURRENT-ACCT
+           PAGE LIMIT IS 60 LINES
+           HEADING 1
+           FIRST DETAIL 10
+           LAST DETAIL 55
+           FOOTING 58.
+
+       01  TYPE PAGE HEADING.
+           05  LINE 1.
+               10  COLUMN 1   PIC X(32)
+                              VALUE "PRACTICE BANK STATEMENT".
+               10  COLUMN 50  PIC X(5)
+                              VALUE "Page".
+               10  COLUMN 56  PIC ZZZ9   SOURCE PAGE-COUNTER.
+           05  LINE 2.
+               10  COLUMN 1   PIC X(78)
+                              VALUE ALL "=".
+
+       01  TYPE CONTROL HEADING WS-CURRENT-ACCT.
+           05  LINE 4.
+               10  COLUMN 1   PIC X(9)   VALUE "Account :".
+               10  COLUMN 11  PIC X(13)  SOURCE WS-CURRENT-ACCT.
+               10  COLUMN 28  PIC X(8)   VALUE "Branch :".
+               10  COLUMN 37  PIC X(40)  SOURCE WS-CURRENT-BRANCH-NAME.
+           05  LINE 5.
+               10  COLUMN 1   PIC X(9)   VALUE "Customer:".
+               10  COLUMN 11  PIC X(60)  SOURCE WS-CURRENT-CUST-NAME.
+           05  LINE 6.
+               10  COLUMN 1   PIC X(9)   VALUE "Period  :".
+               10  COLUMN 11  PIC 9(8)   SOURCE WS-DISPLAY-PERIOD-START.
+               10  COLUMN 20  PIC X(3)   VALUE " - ".
+               10  COLUMN 24  PIC 9(8)   SOURCE WS-DISPLAY-PERIOD-END.
+               10  COLUMN 34  PIC X(8)   VALUE "Mode   :".
+               10  COLUMN 43  PIC X(8)   SOURCE WS-MODE-LABEL.
+           05  LINE 7.
+               10  COLUMN 1   PIC X(17)  VALUE "Opening Balance :".
+               10  COLUMN 30  PIC -ZZZ,ZZZ,ZZZ,ZZ9
+                              SOURCE WS-OPENING-BAL.
+           05  LINE 8.
+               10  COLUMN 1   PIC X(78) VALUE ALL "-".
+           05  LINE 9.
+               10  COLUMN 1   PIC X(10)  VALUE "Date".
+               10  COLUMN 11  PIC X(4)   VALUE "Cat".
+               10  COLUMN 17  PIC X(18)  VALUE "Amount (JPY)".
+               10  COLUMN 36  PIC X(18)  VALUE "Balance After".
+               10  COLUMN 55  PIC X(15)  VALUE "Description".
+
+       01  DETAIL-LINE TYPE DETAIL.
+           05  LINE PLUS 1.
+               10  COLUMN 1   PIC 9(8)   SOURCE WS-DETAIL-TXN-DATE.
+               10  COLUMN 11  PIC X(2)   SOURCE WS-DETAIL-CAT.
+               10  COLUMN 15  PIC -Z,ZZZ,ZZZ,ZZZ,ZZ9
+                              SOURCE WS-DETAIL-SIGNED-AMT.
+               10  COLUMN 35  PIC -Z,ZZZ,ZZZ,ZZZ,ZZ9
+                              SOURCE WS-DETAIL-BAL-AFTER.
+               10  COLUMN 55  PIC X(60)  SOURCE WS-DETAIL-DESCRIPTION.
+
+       01  TYPE CONTROL FOOTING WS-CURRENT-ACCT.
+           05  LINE PLUS 2.
+               10  COLUMN 1   PIC X(78) VALUE ALL "-".
+           05  LINE PLUS 1.
+               10  COLUMN 1   PIC X(17)  VALUE "Closing Balance :".
+               10  COLUMN 30  PIC -ZZZ,ZZZ,ZZZ,ZZ9
+                              SOURCE WS-CLOSING-BAL.
+
+       01  TYPE CONTROL FOOTING FINAL.
+           05  LINE PLUS 3.
+               10  COLUMN 1   PIC X(78) VALUE ALL "=".
+           05  LINE PLUS 1.
+               10  COLUMN 1   PIC X(20)  VALUE "Accounts processed :".
+               10  COLUMN 22  PIC ZZZZZZ9 SOURCE WS-CTR-ACCT-PROCESSED.
+           05  LINE PLUS 1.
+               10  COLUMN 1   PIC X(20)  VALUE "Empty-period accts :".
+               10  COLUMN 22  PIC ZZZZZZ9 SOURCE WS-CTR-ACCT-EMPTY.
+           05  LINE PLUS 1.
+               10  COLUMN 1   PIC X(20)  VALUE "Detail lines       :".
+               10  COLUMN 22  PIC ZZZZZZZZ9
+                              SOURCE WS-CTR-DETAIL-EMITTED.
+
+       PROCEDURE DIVISION USING STMT-INPUT STMT-OUTPUT.
+       MAIN-LOGIC.
+           PERFORM INIT-OUTPUT
+           PERFORM VALIDATE-INPUT
+           IF NOT STMT-OK GOBACK END-IF
+           PERFORM DB-CONNECT
+           IF NOT WS-CONNECTED
+               SET STMT-IO-FAIL TO TRUE
+               GOBACK
+           END-IF
+           PERFORM BUILD-PERIOD
+           PERFORM VERIFY-BUSINESS-DAY
+           IF NOT STMT-OK
+               PERFORM CLEANUP-AND-EXIT
+               GOBACK
+           END-IF
+           PERFORM LOAD-MASTERS
+           PERFORM OPEN-REPORT-FILE
+           IF NOT STMT-OK
+               PERFORM CLEANUP-AND-EXIT
+               GOBACK
+           END-IF
+           PERFORM EMIT-AUDIT-START
+           PERFORM SNAPSHOT-ACCOUNTS
+           PERFORM PROCESS-ALL-ACCOUNTS
+           PERFORM TERMINATE-REPORT
+           PERFORM WRITE-SUMMARY-FILE
+           PERFORM EMIT-AUDIT-END
+           PERFORM POPULATE-OUTPUT
+           PERFORM CLEANUP-AND-EXIT
+           GOBACK.
+
+       INIT-OUTPUT.
+           SET STMT-OK TO TRUE
+           MOVE 0 TO STMT-OUT-ACCOUNTS-PROCESSED
+                     STMT-OUT-ACCOUNTS-EMPTY
+                     STMT-OUT-ACCOUNTS-SKIPPED
+                     STMT-OUT-LINES-WRITTEN
+                     STMT-OUT-PAGES-WRITTEN
+                     STMT-OUT-BYTES-WRITTEN
+                     STMT-OUT-DURATION-SEC
+                     WS-CTR-ACCT-PROCESSED
+                     WS-CTR-ACCT-EMPTY
+                     WS-CTR-ACCT-SKIPPED
+                     WS-CTR-LINES
+                     WS-CTR-DETAIL-EMITTED
+                     WS-CUST-CACHE-COUNT
+                     WS-BR-CACHE-COUNT
+                     WS-ACCT-SNAP-COUNT
+                     WS-TXN-SNAP-COUNT
+           MOVE "N" TO WS-CONN-FLAG WS-RPT-OPEN-FLAG.
+
+       VALIDATE-INPUT.
+           IF STMT-BATCH-ID = SPACES OR
+              STMT-BUSINESS-DATE = 0 OR
+              STMT-OUTPUT-FILENAME = SPACES
+               SET STMT-INVALID-INPUT TO TRUE
+               EXIT PARAGRAPH
+           END-IF
+           EVALUATE STMT-MODE
+               WHEN "D" MOVE "Daily   " TO WS-MODE-LABEL
+               WHEN "M" MOVE "Monthly " TO WS-MODE-LABEL
+               WHEN OTHER
+                   SET STMT-INVALID-INPUT TO TRUE
+                   EXIT PARAGRAPH
+           END-EVALUATE
+           MOVE STMT-OUTPUT-FILENAME  TO WS-OUTPUT-PATH
+           MOVE STMT-SUMMARY-FILENAME TO WS-SUMMARY-PATH.
+
+       DB-CONNECT.
+           MOVE "banking" TO HV-DB-NAME
+           MOVE "cobol"   TO HV-DB-USER
+           MOVE "cobol"   TO HV-DB-PASS
+           EXEC SQL
+               CONNECT :HV-DB-USER IDENTIFIED BY :HV-DB-PASS
+                   USING :HV-DB-NAME
+           END-EXEC
+           IF SQLCODE = 0
+               SET WS-CONNECTED TO TRUE
+           END-IF.
+
+       BUILD-PERIOD.
+           MOVE STMT-BUSINESS-DATE TO WS-BDATE-NUM
+           MOVE WS-BDATE-NUM       TO WS-PERIOD-END-NUM
+           DIVIDE WS-BDATE-NUM BY 10000 GIVING WS-DATE-Y
+           COMPUTE WS-DATE-M = FUNCTION MOD(WS-BDATE-NUM / 100, 100)
+           COMPUTE WS-DATE-D = FUNCTION MOD(WS-BDATE-NUM, 100)
+           EVALUATE STMT-MODE
+               WHEN "D"
+                   MOVE WS-BDATE-NUM TO WS-PERIOD-START-NUM
+               WHEN "M"
+                   COMPUTE WS-PERIOD-START-NUM =
+                       WS-DATE-Y * 10000 + WS-DATE-M * 100 + 1
+           END-EVALUATE
+           IF WS-PERIOD-START-NUM > 19000101
+               COMPUTE WS-OPENING-DATE-NUM = WS-PERIOD-START-NUM - 1
+           ELSE
+               MOVE WS-PERIOD-START-NUM TO WS-OPENING-DATE-NUM
+           END-IF
+           MOVE WS-PERIOD-START-NUM TO WS-DISPLAY-PERIOD-START
+           MOVE WS-PERIOD-END-NUM   TO WS-DISPLAY-PERIOD-END
+           PERFORM BUILD-HV-DATES.
+
+       BUILD-HV-DATES.
+           PERFORM BUILD-HV-FROM-NUM-START
+           PERFORM BUILD-HV-FROM-NUM-END
+           PERFORM BUILD-HV-FROM-NUM-OPENING
+           PERFORM BUILD-HV-FROM-NUM-BUSINESS.
+
+       BUILD-HV-FROM-NUM-START.
+           MOVE WS-PERIOD-START-NUM TO WS-BDATE-NUM
+           PERFORM FORMAT-HV-DATE
+           MOVE HV-BUSINESS-DATE TO HV-PERIOD-START.
+
+       BUILD-HV-FROM-NUM-END.
+           MOVE WS-PERIOD-END-NUM TO WS-BDATE-NUM
+           PERFORM FORMAT-HV-DATE
+           MOVE HV-BUSINESS-DATE TO HV-PERIOD-END.
+
+       BUILD-HV-FROM-NUM-OPENING.
+           MOVE WS-OPENING-DATE-NUM TO WS-BDATE-NUM
+           PERFORM FORMAT-HV-DATE
+           MOVE HV-BUSINESS-DATE TO HV-OPENING-DATE.
+
+       BUILD-HV-FROM-NUM-BUSINESS.
+           MOVE STMT-BUSINESS-DATE TO WS-BDATE-NUM
+           PERFORM FORMAT-HV-DATE.
+
+       FORMAT-HV-DATE.
+           DIVIDE WS-BDATE-NUM BY 10000 GIVING WS-DATE-Y
+           COMPUTE WS-DATE-M = FUNCTION MOD(WS-BDATE-NUM / 100, 100)
+           COMPUTE WS-DATE-D = FUNCTION MOD(WS-BDATE-NUM, 100)
+           MOVE "0000-00-00" TO HV-BUSINESS-DATE
+           STRING WS-DATE-Y "-" WS-DATE-M "-" WS-DATE-D
+                  DELIMITED BY SIZE INTO HV-BUSINESS-DATE.
+
+       VERIFY-BUSINESS-DAY.
+           CONTINUE.
+
+       LOAD-MASTERS.
+           PERFORM LOAD-CUSTOMERS
+           PERFORM LOAD-BRANCHES.
+
+       LOAD-CUSTOMERS.
+           EXEC SQL DECLARE CUSTCUR CURSOR FOR
+               SELECT cust_id, cust_name FROM customers
+               ORDER BY cust_id
+           END-EXEC
+           EXEC SQL OPEN CUSTCUR END-EXEC
+           PERFORM UNTIL WS-CUST-CACHE-COUNT >= 500
+               EXEC SQL
+                   FETCH CUSTCUR INTO :HV-CUST-ID, :HV-CUST-NAME
+               END-EXEC
+               IF SQLCODE NOT = 0
+                   EXIT PERFORM
+               END-IF
+               ADD 1 TO WS-CUST-CACHE-COUNT
+               MOVE WS-CUST-CACHE-COUNT TO WS-CC-IDX
+               MOVE HV-CUST-ID   TO WS-CC-ID(WS-CC-IDX)
+               MOVE HV-CUST-NAME TO WS-CC-NAME-KANJI(WS-CC-IDX)
+           END-PERFORM
+           EXEC SQL CLOSE CUSTCUR END-EXEC
+           EXEC SQL COMMIT END-EXEC.
+
+       LOAD-BRANCHES.
+           EXEC SQL DECLARE BRCUR CURSOR FOR
+               SELECT branch_code, branch_name FROM branches
+               ORDER BY branch_code
+           END-EXEC
+           EXEC SQL OPEN BRCUR END-EXEC
+           PERFORM UNTIL WS-BR-CACHE-COUNT >= 100
+               EXEC SQL
+                   FETCH BRCUR INTO :HV-BRANCH, :HV-BR-NAME
+               END-EXEC
+               IF SQLCODE NOT = 0
+                   EXIT PERFORM
+               END-IF
+               ADD 1 TO WS-BR-CACHE-COUNT
+               MOVE WS-BR-CACHE-COUNT TO WS-CC-IDX
+               MOVE HV-BRANCH  TO WS-BC-CODE(WS-CC-IDX)
+               MOVE HV-BR-NAME TO WS-BC-NAME-KANJI(WS-CC-IDX)
+           END-PERFORM
+           EXEC SQL CLOSE BRCUR END-EXEC
+           EXEC SQL COMMIT END-EXEC.
+
+       OPEN-REPORT-FILE.
+           OPEN OUTPUT REPORT-FILE
+           IF WS-FS-RPT NOT = "00"
+               SET STMT-IO-FAIL TO TRUE
+               EXIT PARAGRAPH
+           END-IF
+           SET WS-RPT-OPENED TO TRUE
+           INITIATE STATEMENT-REPORT.
+
+       SNAPSHOT-ACCOUNTS.
+           EXEC SQL DECLARE ACCTCUR CURSOR FOR
+               SELECT acct_number, cust_id, branch_code, product_code
+                 FROM accounts
+                WHERE acct_number NOT LIKE '00100100000_1'
+                  AND acct_number NOT LIKE '00100100000_2'
+                  AND acct_number NOT LIKE '00100100000_3'
+                  AND acct_number NOT LIKE '00100100000_4'
+                  AND acct_status IN ('A','D')
+                ORDER BY branch_code, acct_number
+           END-EXEC
+           EXEC SQL OPEN ACCTCUR END-EXEC
+           PERFORM UNTIL WS-ACCT-SNAP-COUNT >= 1000
+               EXEC SQL
+                   FETCH ACCTCUR INTO :HV-ACCT, :HV-CUST-ID,
+                                      :HV-BRANCH, :HV-PRODUCT
+               END-EXEC
+               IF SQLCODE NOT = 0
+                   EXIT PERFORM
+               END-IF
+               ADD 1 TO WS-ACCT-SNAP-COUNT
+               MOVE HV-ACCT    TO WS-AS-ACCT(WS-ACCT-SNAP-COUNT)
+               MOVE HV-CUST-ID TO WS-AS-CUST-ID(WS-ACCT-SNAP-COUNT)
+               MOVE HV-BRANCH  TO WS-AS-BRANCH(WS-ACCT-SNAP-COUNT)
+               MOVE HV-PRODUCT TO WS-AS-PRODUCT(WS-ACCT-SNAP-COUNT)
+           END-PERFORM
+           EXEC SQL CLOSE ACCTCUR END-EXEC
+           EXEC SQL COMMIT END-EXEC.
+
+       PROCESS-ALL-ACCOUNTS.
+           MOVE 1 TO WS-ACCT-IDX
+           PERFORM UNTIL WS-ACCT-IDX > WS-ACCT-SNAP-COUNT
+               PERFORM PROCESS-ONE-ACCOUNT
+               ADD 1 TO WS-ACCT-IDX
+           END-PERFORM.
+
+       PROCESS-ONE-ACCOUNT.
+           MOVE WS-AS-ACCT(WS-ACCT-IDX)    TO WS-CURRENT-ACCT
+           MOVE WS-AS-CUST-ID(WS-ACCT-IDX) TO WS-CURRENT-CUST-ID
+           MOVE WS-AS-BRANCH(WS-ACCT-IDX)  TO WS-CURRENT-BRANCH-CODE
+           MOVE WS-AS-PRODUCT(WS-ACCT-IDX) TO WS-CURRENT-PRODUCT-CODE
+           PERFORM RESOLVE-CUST-NAME
+           PERFORM RESOLVE-BRANCH-NAME
+           PERFORM FETCH-OPENING-BALANCE
+           PERFORM FETCH-CLOSING-BALANCE
+           MOVE WS-OPENING-BAL TO WS-RUNNING-BAL
+           PERFORM SNAPSHOT-TXNS-FOR-ACCT
+           IF WS-TXN-SNAP-COUNT = 0
+               IF STMT-SKIP-INACTIVE-YES
+                   ADD 1 TO WS-CTR-ACCT-SKIPPED
+                   EXIT PARAGRAPH
+               END-IF
+               ADD 1 TO WS-CTR-ACCT-EMPTY
+           END-IF
+           ADD 1 TO WS-CTR-ACCT-PROCESSED
+           PERFORM EMIT-ACCOUNT-DETAILS.
+
+       RESOLVE-CUST-NAME.
+           MOVE SPACES TO WS-CURRENT-CUST-NAME
+           PERFORM VARYING WS-ACCT-IDX FROM 1 BY 1
+                   UNTIL WS-ACCT-IDX > WS-CUST-CACHE-COUNT
+               IF WS-CC-ID(WS-ACCT-IDX) = WS-CURRENT-CUST-ID
+                   MOVE WS-CC-NAME-KANJI(WS-ACCT-IDX)
+                                              TO WS-CURRENT-CUST-NAME
+                   EXIT PERFORM
+               END-IF
+           END-PERFORM
+           PERFORM RESTORE-ACCT-IDX.
+
+       RESTORE-ACCT-IDX.
+           PERFORM VARYING WS-ACCT-IDX FROM 1 BY 1
+                   UNTIL WS-ACCT-IDX > WS-ACCT-SNAP-COUNT
+                      OR WS-AS-ACCT(WS-ACCT-IDX) = WS-CURRENT-ACCT
+               CONTINUE
+           END-PERFORM.
+
+       RESOLVE-BRANCH-NAME.
+           MOVE SPACES TO WS-CURRENT-BRANCH-NAME
+           PERFORM VARYING WS-TXN-IDX FROM 1 BY 1
+                   UNTIL WS-TXN-IDX > WS-BR-CACHE-COUNT
+               IF WS-BC-CODE(WS-TXN-IDX) = WS-CURRENT-BRANCH-CODE
+                   MOVE WS-BC-NAME-KANJI(WS-TXN-IDX)
+                                              TO WS-CURRENT-BRANCH-NAME
+                   EXIT PERFORM
+               END-IF
+           END-PERFORM.
+
+       FETCH-OPENING-BALANCE.
+           MOVE WS-CURRENT-ACCT TO HV-ACCT
+           MOVE 0 TO WS-OPENING-BAL HV-BALANCE
+           EXEC SQL
+               SELECT COALESCE(balance_jpy, 0) INTO :HV-BALANCE
+                 FROM balances
+                WHERE account_number = :HV-ACCT
+                  AND (last_business_date IS NULL OR
+                       last_business_date <
+                       CAST(:HV-PERIOD-START AS DATE))
+           END-EXEC
+           IF SQLCODE = 0
+               MOVE HV-BALANCE TO WS-OPENING-BAL
+           END-IF.
+
+       FETCH-CLOSING-BALANCE.
+           MOVE WS-CURRENT-ACCT TO HV-ACCT
+           MOVE 0 TO WS-CLOSING-BAL HV-BALANCE
+           EXEC SQL
+               SELECT COALESCE(balance_jpy, 0) INTO :HV-BALANCE
+                 FROM balances
+                WHERE account_number = :HV-ACCT
+           END-EXEC
+           IF SQLCODE = 0
+               MOVE HV-BALANCE TO WS-CLOSING-BAL
+           END-IF.
+
+       SNAPSHOT-TXNS-FOR-ACCT.
+           MOVE 0 TO WS-TXN-SNAP-COUNT
+           MOVE WS-CURRENT-ACCT TO HV-ACCT
+           EXEC SQL DECLARE TXNCUR CURSOR FOR
+               SELECT t.business_date, t.category, t.amount_jpy,
+                      COALESCE(t.description, ''),
+                      p.posting_role
+                 FROM transactions t
+                 JOIN postings p ON p.txn_id = t.txn_id
+                                AND p.account_number = t.account_number
+                WHERE t.account_number = :HV-ACCT
+                  AND t.business_date >=
+                      CAST(:HV-PERIOD-START AS DATE)
+                  AND t.business_date <=
+                      CAST(:HV-PERIOD-END AS DATE)
+                  AND t.status = 'PT'
+                ORDER BY t.business_date, t.txn_id
+           END-EXEC
+           EXEC SQL OPEN TXNCUR END-EXEC
+           PERFORM UNTIL WS-TXN-SNAP-COUNT >= 500
+               EXEC SQL
+                   FETCH TXNCUR INTO :HV-TXN-DATE, :HV-TXN-CAT,
+                                     :HV-TXN-AMOUNT, :HV-TXN-DESC,
+                                     :HV-TXN-ROLE
+               END-EXEC
+               IF SQLCODE NOT = 0
+                   EXIT PERFORM
+               END-IF
+               ADD 1 TO WS-TXN-SNAP-COUNT
+               PERFORM PARSE-TXN-DATE
+               MOVE WS-BDATE-NUM    TO WS-TS-DATE(WS-TXN-SNAP-COUNT)
+               MOVE HV-TXN-CAT      TO WS-TS-CAT(WS-TXN-SNAP-COUNT)
+               MOVE HV-TXN-AMOUNT   TO WS-TS-AMT(WS-TXN-SNAP-COUNT)
+               MOVE HV-TXN-DESC     TO WS-TS-DESC(WS-TXN-SNAP-COUNT)
+               MOVE HV-TXN-ROLE     TO WS-TS-SIGN(WS-TXN-SNAP-COUNT)
+           END-PERFORM
+           EXEC SQL CLOSE TXNCUR END-EXEC
+           EXEC SQL COMMIT END-EXEC.
+
+       PARSE-TXN-DATE.
+           MOVE 0 TO WS-BDATE-NUM
+           COMPUTE WS-BDATE-NUM =
+               FUNCTION NUMVAL(HV-TXN-DATE(1:4)) * 10000 +
+               FUNCTION NUMVAL(HV-TXN-DATE(6:2)) * 100 +
+               FUNCTION NUMVAL(HV-TXN-DATE(9:2)).
+
+       EMIT-ACCOUNT-DETAILS.
+           IF WS-TXN-SNAP-COUNT = 0
+               PERFORM EMIT-NO-TXN-DETAIL
+               EXIT PARAGRAPH
+           END-IF
+           MOVE 1 TO WS-TXN-IDX
+           PERFORM UNTIL WS-TXN-IDX > WS-TXN-SNAP-COUNT
+               PERFORM EMIT-ONE-DETAIL
+               ADD 1 TO WS-TXN-IDX
+           END-PERFORM.
+
+       EMIT-NO-TXN-DETAIL.
+           MOVE 0                       TO WS-DETAIL-TXN-DATE
+           MOVE "--"                    TO WS-DETAIL-CAT
+           MOVE 0                       TO WS-DETAIL-SIGNED-AMT
+           MOVE WS-OPENING-BAL          TO WS-DETAIL-BAL-AFTER
+           MOVE "(no transactions in period)" TO WS-DETAIL-DESCRIPTION
+           GENERATE DETAIL-LINE
+           ADD 1 TO WS-CTR-DETAIL-EMITTED.
+
+       EMIT-ONE-DETAIL.
+           MOVE WS-TS-DATE(WS-TXN-IDX) TO WS-DETAIL-TXN-DATE
+           MOVE WS-TS-CAT(WS-TXN-IDX)  TO WS-DETAIL-CAT
+           IF WS-TS-SIGN(WS-TXN-IDX) = "DR"
+               COMPUTE WS-DETAIL-SIGNED-AMT = 0 - WS-TS-AMT(WS-TXN-IDX)
+               SUBTRACT WS-TS-AMT(WS-TXN-IDX) FROM WS-RUNNING-BAL
+           ELSE
+               MOVE WS-TS-AMT(WS-TXN-IDX) TO WS-DETAIL-SIGNED-AMT
+               ADD WS-TS-AMT(WS-TXN-IDX) TO WS-RUNNING-BAL
+           END-IF
+           MOVE WS-RUNNING-BAL          TO WS-DETAIL-BAL-AFTER
+           MOVE WS-TS-DESC(WS-TXN-IDX)  TO WS-DETAIL-DESCRIPTION
+           GENERATE DETAIL-LINE
+           ADD 1 TO WS-CTR-DETAIL-EMITTED.
+
+       TERMINATE-REPORT.
+           IF WS-RPT-OPENED
+               TERMINATE STATEMENT-REPORT
+               CLOSE REPORT-FILE
+               MOVE "N" TO WS-RPT-OPEN-FLAG
+           END-IF.
+
+       WRITE-SUMMARY-FILE.
+           IF STMT-SUMMARY-FILENAME = SPACES
+               EXIT PARAGRAPH
+           END-IF
+           OPEN OUTPUT SUMMARY-FILE
+           IF WS-FS-SUM NOT = "00"
+               EXIT PARAGRAPH
+           END-IF
+           MOVE "=== Statement Batch Summary ===" TO SUMMARY-LINE
+           WRITE SUMMARY-LINE
+           STRING "Batch:    " STMT-BATCH-ID
+                  DELIMITED BY SIZE INTO SUMMARY-LINE
+           WRITE SUMMARY-LINE
+           MOVE WS-CTR-ACCT-PROCESSED TO WS-AUD-DISP
+           STRING "Accounts: " FUNCTION TRIM(WS-AUD-DISP)
+                  DELIMITED BY SIZE INTO SUMMARY-LINE
+           WRITE SUMMARY-LINE
+           MOVE WS-CTR-DETAIL-EMITTED TO WS-AUD-DISP
+           STRING "Details:  " FUNCTION TRIM(WS-AUD-DISP)
+                  DELIMITED BY SIZE INTO SUMMARY-LINE
+           WRITE SUMMARY-LINE
+           CLOSE SUMMARY-FILE.
+
+       EMIT-AUDIT-START.
+           MOVE "17-statement"        TO WS-AUD-SUBSYSTEM
+           MOVE "STMT_GEN_START"      TO WS-AUD-ACTION
+           MOVE "SYSTEM"              TO WS-AUD-ACTOR
+           MOVE "BATCH"               TO WS-AUD-TARGET-TYPE
+           MOVE STMT-BATCH-ID         TO WS-AUD-TARGET-ID
+           MOVE "I"                   TO WS-AUD-SEVERITY
+           MOVE STMT-BUSINESS-DATE    TO WS-AUD-BUSINESS-DATE
+           MOVE SPACES                TO WS-AUD-PAYLOAD-JSON
+           STRING '{"batch":"' STMT-BATCH-ID
+                  '","mode":"' STMT-MODE '"}'
+                  DELIMITED BY SIZE INTO WS-AUD-PAYLOAD-JSON
+           CALL "AUD-WRITE" USING WS-AUD-ROW WS-AUD-RC
+               ON EXCEPTION CONTINUE
+           END-CALL.
+
+       EMIT-AUDIT-END.
+           MOVE "17-statement"        TO WS-AUD-SUBSYSTEM
+           MOVE "STMT_GEN_END"        TO WS-AUD-ACTION
+           MOVE "SYSTEM"              TO WS-AUD-ACTOR
+           MOVE "BATCH"               TO WS-AUD-TARGET-TYPE
+           MOVE STMT-BATCH-ID         TO WS-AUD-TARGET-ID
+           MOVE "I"                   TO WS-AUD-SEVERITY
+           MOVE STMT-BUSINESS-DATE    TO WS-AUD-BUSINESS-DATE
+           MOVE SPACES                TO WS-AUD-PAYLOAD-JSON
+           MOVE WS-CTR-ACCT-PROCESSED TO WS-AUD-DISP
+           STRING '{"accts":"' FUNCTION TRIM(WS-AUD-DISP)
+                  '"}'
+                  DELIMITED BY SIZE INTO WS-AUD-PAYLOAD-JSON
+           CALL "AUD-WRITE" USING WS-AUD-ROW WS-AUD-RC
+               ON EXCEPTION CONTINUE
+           END-CALL.
+
+       POPULATE-OUTPUT.
+           MOVE WS-CTR-ACCT-PROCESSED TO STMT-OUT-ACCOUNTS-PROCESSED
+           MOVE WS-CTR-ACCT-EMPTY     TO STMT-OUT-ACCOUNTS-EMPTY
+           MOVE WS-CTR-ACCT-SKIPPED   TO STMT-OUT-ACCOUNTS-SKIPPED
+           MOVE WS-CTR-DETAIL-EMITTED TO STMT-OUT-LINES-WRITTEN.
+
+       CLEANUP-AND-EXIT.
+           IF WS-RPT-OPENED
+               CLOSE REPORT-FILE
+           END-IF
+           IF WS-CONNECTED
+               EXEC SQL DISCONNECT ALL END-EXEC
+               MOVE "N" TO WS-CONN-FLAG
+           END-IF.
+
+       END PROGRAM STMT-GENERATE-BATCH.

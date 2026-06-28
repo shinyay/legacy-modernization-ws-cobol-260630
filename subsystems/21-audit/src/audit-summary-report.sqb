@@ -1,0 +1,235 @@
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. AUDIT-SUMMARY-REPORT.
+       ENVIRONMENT DIVISION.
+       INPUT-OUTPUT SECTION.
+       FILE-CONTROL.
+           SELECT OUT-FILE
+               ASSIGN TO WS-OUT-PATH
+               ORGANIZATION IS LINE SEQUENTIAL
+               FILE STATUS IS WS-FS-OUT.
+
+       DATA DIVISION.
+       FILE SECTION.
+       FD  OUT-FILE.
+       01  OUT-LINE                  PIC X(200).
+
+       WORKING-STORAGE SECTION.
+       01  WS-FS-OUT                 PIC X(2).
+       01  WS-OUT-PATH               PIC X(120).
+       01  WS-CONN-FLAG              PIC X(1) VALUE "N".
+           88  WS-CONNECTED                   VALUE "Y".
+       01  WS-OUT-OPEN               PIC X(1) VALUE "N".
+       01  WS-CTR-GROUPS             PIC 9(7) VALUE 0.
+       01  WS-CTR-TOTAL              PIC 9(10) VALUE 0.
+
+       01  WS-DATE-NUM               PIC 9(8).
+       01  WS-DATE-Y                 PIC 9(4).
+       01  WS-DATE-M                 PIC 9(2).
+       01  WS-DATE-D                 PIC 9(2).
+       01  WS-DATE-STR               PIC X(10).
+       01  WS-DISP                   PIC ZZZZZZZZZ9.
+
+       EXEC SQL BEGIN DECLARE SECTION END-EXEC.
+
+       01  HV-DB-NAME                PIC X(80).
+       01  HV-DB-USER                PIC X(32).
+       01  HV-DB-PASS                PIC X(32).
+       01  HV-DATE-START             PIC X(10).
+       01  HV-DATE-END               PIC X(10).
+       01  HV-OUT-DAY                PIC X(10).
+       01  HV-OUT-SUBSYSTEM          PIC X(30).
+       01  HV-OUT-ACTION             PIC X(50).
+       01  HV-OUT-COUNT              PIC S9(10) COMP-3.
+
+       EXEC SQL END DECLARE SECTION END-EXEC.
+
+       EXEC SQL INCLUDE sqlca END-EXEC.
+
+           COPY "aud-write-api.cpy".
+
+       LINKAGE SECTION.
+           COPY "audit-api.cpy".
+
+       PROCEDURE DIVISION USING ASR-INPUT ASR-OUTPUT.
+       MAIN-LOGIC.
+           PERFORM INIT-OUTPUT
+           PERFORM VALIDATE-INPUT
+           IF NOT ASR-OK GOBACK END-IF
+           PERFORM DB-CONNECT
+           IF NOT WS-CONNECTED
+               SET ASR-FATAL TO TRUE
+               GOBACK
+           END-IF
+           PERFORM BUILD-DATE-HOST-VARS
+           PERFORM OPEN-OUT-FILE
+           IF NOT ASR-OK
+               PERFORM CLEANUP
+               GOBACK
+           END-IF
+           PERFORM EMIT-HEADER
+           IF ASR-MODE-BY-DAY
+               PERFORM RUN-BY-DAY
+           ELSE
+               PERFORM RUN-BY-SUBSYSTEM
+           END-IF
+           PERFORM CLOSE-OUT-FILE
+           PERFORM POPULATE-OUTPUT
+           PERFORM CLEANUP
+           GOBACK.
+
+       INIT-OUTPUT.
+           SET ASR-OK TO TRUE
+           MOVE 0 TO ASR-OUT-GROUP-COUNT ASR-OUT-TOTAL-ROWS
+                     WS-CTR-GROUPS WS-CTR-TOTAL
+           MOVE "N" TO WS-CONN-FLAG WS-OUT-OPEN
+           IF NOT (ASR-MODE-BY-DAY OR ASR-MODE-BY-SUBSYSTEM)
+               MOVE "D" TO ASR-MODE
+           END-IF.
+
+       VALIDATE-INPUT.
+           IF ASR-DATE-START = 0 OR ASR-DATE-END = 0
+               SET ASR-INVALID-INPUT TO TRUE
+               EXIT PARAGRAPH
+           END-IF
+           IF ASR-OUTPUT-FILENAME = SPACES
+               SET ASR-INVALID-INPUT TO TRUE
+           END-IF.
+
+       DB-CONNECT.
+           MOVE "banking" TO HV-DB-NAME
+           MOVE "cobol"   TO HV-DB-USER
+           MOVE "cobol"   TO HV-DB-PASS
+           EXEC SQL
+               CONNECT :HV-DB-USER IDENTIFIED BY :HV-DB-PASS
+                   USING :HV-DB-NAME
+           END-EXEC
+           IF SQLCODE = 0
+               SET WS-CONNECTED TO TRUE
+           END-IF.
+
+       BUILD-DATE-HOST-VARS.
+           MOVE ASR-DATE-START TO WS-DATE-NUM
+           PERFORM FORMAT-DATE
+           MOVE WS-DATE-STR TO HV-DATE-START
+           MOVE ASR-DATE-END TO WS-DATE-NUM
+           PERFORM FORMAT-DATE
+           MOVE WS-DATE-STR TO HV-DATE-END.
+
+       FORMAT-DATE.
+           DIVIDE WS-DATE-NUM BY 10000 GIVING WS-DATE-Y
+           COMPUTE WS-DATE-M = FUNCTION MOD(WS-DATE-NUM / 100, 100)
+           COMPUTE WS-DATE-D = FUNCTION MOD(WS-DATE-NUM, 100)
+           MOVE "0000-00-00" TO WS-DATE-STR
+           STRING WS-DATE-Y "-" WS-DATE-M "-" WS-DATE-D
+                  DELIMITED BY SIZE INTO WS-DATE-STR.
+
+       OPEN-OUT-FILE.
+           MOVE ASR-OUTPUT-FILENAME TO WS-OUT-PATH
+           OPEN OUTPUT OUT-FILE
+           IF WS-FS-OUT NOT = "00"
+               SET ASR-IO-FAIL TO TRUE
+           ELSE
+               MOVE "Y" TO WS-OUT-OPEN
+           END-IF.
+
+       EMIT-HEADER.
+           MOVE "=== Audit Summary Report ===" TO OUT-LINE
+           WRITE OUT-LINE
+           IF ASR-MODE-BY-DAY
+               MOVE "Day        | Action                       | Count"
+                                              TO OUT-LINE
+           ELSE
+               MOVE "Subsystem        | Severity | Count" TO OUT-LINE
+           END-IF
+           WRITE OUT-LINE.
+
+       RUN-BY-DAY.
+           EXEC SQL DECLARE SBYDAY CURSOR FOR
+               SELECT CAST(business_date AS TEXT),
+                      TRIM(TRAILING FROM action),
+                      COUNT(*)
+                 FROM audit_log
+                WHERE business_date >=
+                      CAST(:HV-DATE-START AS DATE)
+                  AND business_date <=
+                      CAST(:HV-DATE-END AS DATE)
+                GROUP BY business_date, action
+                ORDER BY business_date, COUNT(*) DESC
+           END-EXEC
+           EXEC SQL OPEN SBYDAY END-EXEC
+           PERFORM UNTIL SQLCODE NOT = 0
+               EXEC SQL
+                   FETCH SBYDAY INTO :HV-OUT-DAY, :HV-OUT-ACTION,
+                                     :HV-OUT-COUNT
+               END-EXEC
+               IF SQLCODE NOT = 0
+                   EXIT PERFORM
+               END-IF
+               ADD 1 TO WS-CTR-GROUPS
+               ADD HV-OUT-COUNT TO WS-CTR-TOTAL
+               MOVE HV-OUT-COUNT TO WS-DISP
+               MOVE SPACES TO OUT-LINE
+               STRING HV-OUT-DAY " | "
+                      HV-OUT-ACTION " | "
+                      FUNCTION TRIM(WS-DISP)
+                      DELIMITED BY SIZE INTO OUT-LINE
+               WRITE OUT-LINE
+           END-PERFORM
+           EXEC SQL CLOSE SBYDAY END-EXEC
+           EXEC SQL COMMIT END-EXEC.
+
+       RUN-BY-SUBSYSTEM.
+           EXEC SQL DECLARE SBYSUB CURSOR FOR
+               SELECT TRIM(TRAILING FROM subsystem),
+                      severity, COUNT(*)
+                 FROM audit_log
+                WHERE business_date >=
+                      CAST(:HV-DATE-START AS DATE)
+                  AND business_date <=
+                      CAST(:HV-DATE-END AS DATE)
+                GROUP BY subsystem, severity
+                ORDER BY subsystem, severity
+           END-EXEC
+           EXEC SQL OPEN SBYSUB END-EXEC
+           PERFORM UNTIL SQLCODE NOT = 0
+               EXEC SQL
+                   FETCH SBYSUB INTO :HV-OUT-SUBSYSTEM,
+                                     :HV-OUT-ACTION,
+                                     :HV-OUT-COUNT
+               END-EXEC
+               IF SQLCODE NOT = 0
+                   EXIT PERFORM
+               END-IF
+               ADD 1 TO WS-CTR-GROUPS
+               ADD HV-OUT-COUNT TO WS-CTR-TOTAL
+               MOVE HV-OUT-COUNT TO WS-DISP
+               MOVE SPACES TO OUT-LINE
+               STRING HV-OUT-SUBSYSTEM " | "
+                      HV-OUT-ACTION(1:1) " | "
+                      FUNCTION TRIM(WS-DISP)
+                      DELIMITED BY SIZE INTO OUT-LINE
+               WRITE OUT-LINE
+           END-PERFORM
+           EXEC SQL CLOSE SBYSUB END-EXEC
+           EXEC SQL COMMIT END-EXEC.
+
+       CLOSE-OUT-FILE.
+           IF WS-OUT-OPEN = "Y"
+               CLOSE OUT-FILE
+               MOVE "N" TO WS-OUT-OPEN
+           END-IF.
+
+       POPULATE-OUTPUT.
+           MOVE WS-CTR-GROUPS TO ASR-OUT-GROUP-COUNT
+           MOVE WS-CTR-TOTAL  TO ASR-OUT-TOTAL-ROWS.
+
+       CLEANUP.
+           IF WS-OUT-OPEN = "Y"
+               CLOSE OUT-FILE
+           END-IF
+           IF WS-CONNECTED
+               EXEC SQL DISCONNECT ALL END-EXEC
+               MOVE "N" TO WS-CONN-FLAG
+           END-IF.
+
+       END PROGRAM AUDIT-SUMMARY-REPORT.

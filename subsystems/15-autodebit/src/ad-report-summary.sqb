@@ -1,0 +1,174 @@
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. AD-REPORT-SUMMARY.
+       ENVIRONMENT DIVISION.
+       INPUT-OUTPUT SECTION.
+       FILE-CONTROL.
+           SELECT AD-FAIL-FILE
+               ASSIGN TO WS-FAIL-PATH
+               ORGANIZATION IS SEQUENTIAL
+               ACCESS MODE IS SEQUENTIAL
+               FILE STATUS IS WS-FS-FAIL.
+           SELECT AD-RPT-FILE
+               ASSIGN TO WS-RPT-PATH
+               ORGANIZATION IS LINE SEQUENTIAL
+               ACCESS MODE IS SEQUENTIAL
+               FILE STATUS IS WS-FS-RPT.
+
+       DATA DIVISION.
+       FILE SECTION.
+       FD  AD-FAIL-FILE.
+       01  AD-FAIL-IN-REC           PIC X(200).
+       FD  AD-RPT-FILE.
+       01  AD-RPT-OUT-LINE          PIC X(120).
+
+       WORKING-STORAGE SECTION.
+       01  WS-FS-FAIL                PIC X(2).
+       01  WS-FS-RPT                 PIC X(2).
+       01  WS-CONN-FLAG              PIC X(1) VALUE "N".
+           88  WS-CONNECTED                  VALUE "Y".
+       01  WS-FAIL-PATH              PIC X(80).
+       01  WS-RPT-PATH               PIC X(80).
+       01  WS-CONSERVATION-PASS      PIC X(1) VALUE "Y".
+
+       01  WS-FILE-FAIL-COUNT        PIC 9(7) VALUE 0.
+
+       01  WS-PG-PT-COUNT            PIC 9(7) VALUE 0.
+       01  WS-PG-PT-SUM              PIC S9(15) COMP-3 VALUE 0.
+
+           COPY "aud-write-api.cpy".
+
+           EXEC SQL BEGIN DECLARE SECTION END-EXEC.
+
+       01  HV-DB-NAME                PIC X(80).
+       01  HV-DB-USER                PIC X(32).
+       01  HV-DB-PASS                PIC X(32).
+       01  HV-BATCH-ID               PIC X(14).
+       01  HV-COUNT                  PIC S9(7) COMP-3.
+       01  HV-SUM                    PIC S9(15) COMP-3.
+
+           EXEC SQL END DECLARE SECTION END-EXEC.
+
+           EXEC SQL INCLUDE sqlca END-EXEC.
+
+       LINKAGE SECTION.
+           COPY "ad-api.cpy".
+
+       PROCEDURE DIVISION USING AD-REPORT-INPUT AD-REPORT-OUTPUT.
+       MAIN-LOGIC.
+           PERFORM INIT-OUTPUT
+           PERFORM VALIDATE-INPUT
+           IF NOT AD-RPT-OK GOBACK END-IF
+           PERFORM DB-CONNECT
+           IF NOT WS-CONNECTED
+               SET AD-RPT-IO-FAIL TO TRUE
+               GOBACK
+           END-IF
+           PERFORM PG-CROSS-VERIFY
+           PERFORM READ-FAIL-FILE
+           PERFORM WRITE-REPORT
+           PERFORM POPULATE-OUTPUT
+           PERFORM CLEANUP-AND-EXIT
+           GOBACK.
+
+       INIT-OUTPUT.
+           SET AD-RPT-OK TO TRUE
+           MOVE 0 TO AD-RPT-TOTAL-INSTRUCTIONS
+                     AD-RPT-TOTAL-OK-JPY
+                     AD-RPT-TOTAL-FAILED-COUNT
+                     AD-RPT-SUSPENDED-COUNT
+                     AD-RPT-PG-PT-COUNT
+                     AD-RPT-FILE-FAILED-COUNT
+                     AD-RPT-DURATION-SEC
+           MOVE "Y" TO AD-RPT-CONSERVATION-PASS
+           MOVE "Y" TO WS-CONSERVATION-PASS
+           MOVE 0 TO WS-PG-PT-COUNT WS-PG-PT-SUM WS-FILE-FAIL-COUNT
+           MOVE "N" TO WS-CONN-FLAG.
+
+       VALIDATE-INPUT.
+           IF AD-RPT-BATCH-ID = SPACES OR
+              AD-RPT-REPORT-FILENAME = SPACES OR
+              AD-RPT-FAILED-FILENAME = SPACES
+               SET AD-RPT-INVALID-INPUT TO TRUE
+           END-IF
+           MOVE AD-RPT-REPORT-FILENAME TO WS-RPT-PATH
+           MOVE AD-RPT-FAILED-FILENAME TO WS-FAIL-PATH.
+
+       DB-CONNECT.
+           MOVE "banking" TO HV-DB-NAME
+           MOVE "cobol"   TO HV-DB-USER
+           MOVE "cobol"   TO HV-DB-PASS
+           EXEC SQL
+               CONNECT :HV-DB-USER IDENTIFIED BY :HV-DB-PASS
+                   USING :HV-DB-NAME
+           END-EXEC
+           IF SQLCODE = 0
+               SET WS-CONNECTED TO TRUE
+           END-IF.
+
+       PG-CROSS-VERIFY.
+           MOVE AD-RPT-BATCH-ID TO HV-BATCH-ID
+           EXEC SQL
+               SELECT COUNT(*), COALESCE(SUM(amount_jpy), 0)
+                 INTO :HV-COUNT, :HV-SUM
+                 FROM transactions
+                WHERE source_system = 'AUTODEBIT'
+                  AND source_batch_id = :HV-BATCH-ID
+           END-EXEC
+           IF SQLCODE = 0
+               MOVE HV-COUNT TO WS-PG-PT-COUNT
+               MOVE HV-SUM   TO WS-PG-PT-SUM
+           END-IF.
+
+       READ-FAIL-FILE.
+           OPEN INPUT AD-FAIL-FILE
+           IF WS-FS-FAIL NOT = "00"
+               EXIT PARAGRAPH
+           END-IF
+           PERFORM UNTIL WS-FS-FAIL NOT = "00"
+               READ AD-FAIL-FILE
+                   AT END EXIT PERFORM
+                   NOT AT END ADD 1 TO WS-FILE-FAIL-COUNT
+               END-READ
+           END-PERFORM
+           CLOSE AD-FAIL-FILE.
+
+       WRITE-REPORT.
+           OPEN OUTPUT AD-RPT-FILE
+           IF WS-FS-RPT NOT = "00"
+               SET AD-RPT-IO-FAIL TO TRUE
+               EXIT PARAGRAPH
+           END-IF
+           MOVE "=== AD Daily Autodebit Report ===" TO AD-RPT-OUT-LINE
+           WRITE AD-RPT-OUT-LINE
+           STRING "Batch ID:        " AD-RPT-BATCH-ID
+                  DELIMITED BY SIZE INTO AD-RPT-OUT-LINE
+           WRITE AD-RPT-OUT-LINE
+           STRING "PG PT count:     " WS-PG-PT-COUNT
+                  DELIMITED BY SIZE INTO AD-RPT-OUT-LINE
+           WRITE AD-RPT-OUT-LINE
+           STRING "PG sum JPY:      " WS-PG-PT-SUM
+                  DELIMITED BY SIZE INTO AD-RPT-OUT-LINE
+           WRITE AD-RPT-OUT-LINE
+           STRING "File failures:   " WS-FILE-FAIL-COUNT
+                  DELIMITED BY SIZE INTO AD-RPT-OUT-LINE
+           WRITE AD-RPT-OUT-LINE
+           STRING "Conservation:    " WS-CONSERVATION-PASS
+                  DELIMITED BY SIZE INTO AD-RPT-OUT-LINE
+           WRITE AD-RPT-OUT-LINE
+           CLOSE AD-RPT-FILE.
+
+       POPULATE-OUTPUT.
+           MOVE WS-PG-PT-COUNT       TO AD-RPT-PG-PT-COUNT
+           MOVE WS-PG-PT-COUNT       TO AD-RPT-TOTAL-INSTRUCTIONS
+           MOVE WS-PG-PT-SUM         TO AD-RPT-TOTAL-OK-JPY
+           MOVE WS-FILE-FAIL-COUNT   TO AD-RPT-FILE-FAILED-COUNT
+           MOVE WS-FILE-FAIL-COUNT   TO AD-RPT-TOTAL-FAILED-COUNT
+           MOVE WS-CONSERVATION-PASS TO AD-RPT-CONSERVATION-PASS.
+
+       CLEANUP-AND-EXIT.
+           IF WS-CONNECTED
+               EXEC SQL DISCONNECT ALL END-EXEC
+               MOVE "N" TO WS-CONN-FLAG
+           END-IF.
+
+       END PROGRAM AD-REPORT-SUMMARY.

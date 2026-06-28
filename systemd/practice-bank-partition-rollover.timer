@@ -1,0 +1,11 @@
+[Unit]
+Description=PRACTICE BANK Monthly Partition Rollover Trigger (= DC13 / 21-audit)
+Documentation=file:///opt/practice-bank/docs/operations/OPERATIONS.md
+
+[Timer]
+OnCalendar=*-*-25 02:00:00 Asia/Tokyo
+Persistent=true
+Unit=practice-bank-partition-rollover.service
+
+[Install]
+WantedBy=timers.target

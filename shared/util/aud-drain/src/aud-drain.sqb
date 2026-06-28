@@ -1,0 +1,270 @@
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. AUD-DRAIN.
+
+       ENVIRONMENT DIVISION.
+
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+
+       01  AD-CONN-FLAG              PIC X VALUE 'N'.
+           88  AD-CONNECTED            VALUE 'Y'.
+
+       01  AD-USE-FILTER             PIC X VALUE 'N'.
+           88  AD-FILTER-ON            VALUE 'Y'.
+
+       01  AD-ARG-BAD                PIC X VALUE 'N'.
+           88  AD-ARG-INVALID          VALUE 'Y'.
+
+       01  AD-LOOP-DONE              PIC X VALUE 'N'.
+       01  AD-NARGS                  PIC 9(4) VALUE 0.
+
+       01  AD-DRAINED-CNT            PIC 9(9) VALUE 0.
+       01  AD-FAILED-CNT             PIC 9(9) VALUE 0.
+       01  AD-CUR-MONTH              PIC X(6) VALUE SPACES.
+       01  AD-LAST-MONTH             PIC X(6) VALUE SPACES.
+       01  AD-EXIT-CODE              PIC 9(4) VALUE 0.
+
+       01  AD-ENV-VAL                PIC X(80).
+       01  AD-OUTBOX-ID-DISP         PIC Z(17)9.
+       01  AD-SQLCODE-DISP           PIC -Z(8)9.
+
+       EXEC SQL BEGIN DECLARE SECTION END-EXEC.
+       01  AD-DB-NAME                PIC X(80).
+       01  AD-DB-USER                PIC X(32).
+       01  AD-DB-PASS                PIC X(32).
+       01  AD-FILTER-BDATE           PIC X(8).
+       01  AD-OUTBOX-ID              PIC S9(18) COMP-3.
+       01  AD-BDATE-TXT              PIC X(8).
+       01  AD-SUBSYSTEM              PIC X(30).
+       01  AD-ACTION                 PIC X(50).
+       01  AD-ACTOR                  PIC X(30).
+       01  AD-TARGET-TYPE            PIC X(20).
+       01  AD-TARGET-ID              PIC X(20).
+       01  AD-PAYLOAD                PIC X(2000).
+       01  AD-SEVERITY               PIC X(1).
+       01  AD-EVENT-KEY              PIC X(80).
+       01  AD-MONTH-START            PIC X(10).
+       01  AD-PART-NAME              PIC X(40).
+       EXEC SQL END DECLARE SECTION END-EXEC.
+
+       EXEC SQL INCLUDE sqlca END-EXEC.
+
+       01  WS-SQLERRD-3              PIC S9(9) COMP-5.
+
+       COPY "aud-write-api.cpy".
+
+       PROCEDURE DIVISION.
+       MAIN-DRAIN.
+           PERFORM PARSE-ARGS.
+           IF AD-ARG-INVALID
+               DISPLAY "[AUD-DRAIN] invalid business_date arg "
+                       "(want YYYYMMDD): "
+                       FUNCTION TRIM(AD-FILTER-BDATE)
+                       UPON SYSERR
+               MOVE 2 TO RETURN-CODE
+               GOBACK
+           END-IF.
+           PERFORM AD-CONNECT.
+           IF NOT AD-CONNECTED
+               DISPLAY "[AUD-DRAIN] connect failed sqlcode=" SQLCODE
+                       UPON SYSERR
+               MOVE 8 TO RETURN-CODE
+               GOBACK
+           END-IF.
+           PERFORM DRAIN-LOOP UNTIL AD-LOOP-DONE = 'Y'.
+           PERFORM AD-DISCONNECT.
+           DISPLAY "[AUD-DRAIN] drained=" AD-DRAINED-CNT
+                   " failed=" AD-FAILED-CNT
+                   " filter=" AD-USE-FILTER AD-FILTER-BDATE.
+           MOVE AD-EXIT-CODE TO RETURN-CODE.
+           GOBACK.
+
+       PARSE-ARGS.
+           ACCEPT AD-NARGS FROM ARGUMENT-NUMBER.
+           IF AD-NARGS >= 1
+               MOVE SPACES TO AD-FILTER-BDATE
+               ACCEPT AD-FILTER-BDATE FROM ARGUMENT-VALUE
+               IF AD-FILTER-BDATE = SPACES
+                   CONTINUE
+               ELSE IF AD-FILTER-BDATE IS NUMERIC
+                   SET AD-FILTER-ON TO TRUE
+               ELSE
+                   SET AD-ARG-INVALID TO TRUE
+               END-IF
+           END-IF.
+
+       AD-CONNECT.
+           MOVE SPACES TO AD-DB-NAME.
+           STRING
+               "banking@"      DELIMITED BY SIZE
+               "postgres:5432" DELIMITED BY SIZE
+               INTO AD-DB-NAME
+           END-STRING.
+           ACCEPT AD-ENV-VAL FROM ENVIRONMENT 'PGHOST'.
+           IF AD-ENV-VAL NOT = SPACES
+               MOVE SPACES TO AD-DB-NAME
+               STRING
+                   "banking@" DELIMITED BY SIZE
+                   FUNCTION TRIM(AD-ENV-VAL) DELIMITED BY SIZE
+                   ":5432"    DELIMITED BY SIZE
+                   INTO AD-DB-NAME
+               END-STRING
+           END-IF.
+           MOVE "cobol" TO AD-DB-USER.
+           MOVE "cobol" TO AD-DB-PASS.
+           ACCEPT AD-ENV-VAL FROM ENVIRONMENT 'PGUSER'.
+           IF AD-ENV-VAL NOT = SPACES
+               MOVE AD-ENV-VAL(1:32) TO AD-DB-USER
+           END-IF.
+           ACCEPT AD-ENV-VAL FROM ENVIRONMENT 'PGPASSWORD'.
+           IF AD-ENV-VAL NOT = SPACES
+               MOVE AD-ENV-VAL(1:32) TO AD-DB-PASS
+           END-IF.
+           EXEC SQL
+               CONNECT :AD-DB-USER IDENTIFIED BY :AD-DB-PASS
+                   USING :AD-DB-NAME
+           END-EXEC.
+           IF SQLCODE = 0
+               SET AD-CONNECTED TO TRUE
+           END-IF.
+
+       AD-DISCONNECT.
+           IF AD-CONNECTED
+               EXEC SQL DISCONNECT ALL END-EXEC
+               MOVE 'N' TO AD-CONN-FLAG
+           END-IF.
+
+       DRAIN-LOOP.
+           PERFORM FETCH-NEXT-ROW.
+           IF SQLCODE = 100
+               MOVE 'Y' TO AD-LOOP-DONE
+               EXIT PARAGRAPH
+           END-IF.
+           IF SQLCODE NOT = 0
+               MOVE SQLCODE TO AD-SQLCODE-DISP
+               DISPLAY "[AUD-DRAIN] fetch error sqlcode="
+                       FUNCTION TRIM(AD-SQLCODE-DISP) UPON SYSERR
+               MOVE 8 TO AD-EXIT-CODE
+               MOVE 'Y' TO AD-LOOP-DONE
+               EXIT PARAGRAPH
+           END-IF.
+
+           PERFORM ENSURE-PARTITION.
+
+           PERFORM BUILD-AUD-ROW.
+           CALL "AUD-WRITE" USING WS-AUD-ROW WS-AUD-RC
+               ON EXCEPTION
+                   MOVE 8 TO WS-AUD-RC
+           END-CALL.
+
+           IF WS-AUD-RC = 0
+               PERFORM DELETE-DRAINED-ROW
+               ADD 1 TO AD-DRAINED-CNT
+           ELSE
+               ADD 1 TO AD-FAILED-CNT
+               MOVE AD-OUTBOX-ID TO AD-OUTBOX-ID-DISP
+               DISPLAY "[AUD-DRAIN] AUD-WRITE rc=" WS-AUD-RC
+                       " left outbox_id="
+                       FUNCTION TRIM(AD-OUTBOX-ID-DISP)
+                       " event_key=" FUNCTION TRIM(AD-EVENT-KEY)
+                       UPON SYSERR
+               MOVE 4 TO AD-EXIT-CODE
+               MOVE 'Y' TO AD-LOOP-DONE
+           END-IF.
+
+       FETCH-NEXT-ROW.
+           IF AD-FILTER-ON
+               EXEC SQL
+                   SELECT outbox_id,
+                          TO_CHAR(business_date, 'YYYYMMDD'),
+                          subsystem, action,
+                          COALESCE(actor, ''),
+                          COALESCE(target_type, ''),
+                          COALESCE(target_id, ''),
+                          COALESCE(CAST(payload_json AS text), '{}'),
+                          severity, event_key
+                     INTO :AD-OUTBOX-ID, :AD-BDATE-TXT,
+                          :AD-SUBSYSTEM, :AD-ACTION,
+                          :AD-ACTOR, :AD-TARGET-TYPE,
+                          :AD-TARGET-ID, :AD-PAYLOAD,
+                          :AD-SEVERITY, :AD-EVENT-KEY
+                     FROM audit_outbox
+                    WHERE business_date = CAST(:AD-FILTER-BDATE AS date)
+                    ORDER BY outbox_id
+                    LIMIT 1
+               END-EXEC
+           ELSE
+               EXEC SQL
+                   SELECT outbox_id,
+                          TO_CHAR(business_date, 'YYYYMMDD'),
+                          subsystem, action,
+                          COALESCE(actor, ''),
+                          COALESCE(target_type, ''),
+                          COALESCE(target_id, ''),
+                          COALESCE(CAST(payload_json AS text), '{}'),
+                          severity, event_key
+                     INTO :AD-OUTBOX-ID, :AD-BDATE-TXT,
+                          :AD-SUBSYSTEM, :AD-ACTION,
+                          :AD-ACTOR, :AD-TARGET-TYPE,
+                          :AD-TARGET-ID, :AD-PAYLOAD,
+                          :AD-SEVERITY, :AD-EVENT-KEY
+                     FROM audit_outbox
+                    ORDER BY outbox_id
+                    LIMIT 1
+               END-EXEC
+           END-IF.
+
+       ENSURE-PARTITION.
+           MOVE AD-BDATE-TXT(1:6) TO AD-CUR-MONTH.
+           IF AD-CUR-MONTH = AD-LAST-MONTH
+               EXIT PARAGRAPH
+           END-IF.
+           MOVE SPACES TO AD-MONTH-START.
+           STRING AD-BDATE-TXT(1:4) DELIMITED BY SIZE
+                  "-"               DELIMITED BY SIZE
+                  AD-BDATE-TXT(5:2) DELIMITED BY SIZE
+                  "-01"             DELIMITED BY SIZE
+                  INTO AD-MONTH-START
+           END-STRING.
+           EXEC SQL
+               SELECT create_audit_partition(:AD-MONTH-START)
+                 INTO :AD-PART-NAME
+           END-EXEC.
+           IF SQLCODE = 0
+               EXEC SQL COMMIT END-EXEC
+               MOVE AD-CUR-MONTH TO AD-LAST-MONTH
+           ELSE
+               MOVE SQLCODE TO AD-SQLCODE-DISP
+               DISPLAY "[AUD-DRAIN] ensure-partition warn sqlcode="
+                       FUNCTION TRIM(AD-SQLCODE-DISP)
+                       " month=" AD-MONTH-START UPON SYSERR
+               EXEC SQL ROLLBACK END-EXEC
+           END-IF.
+
+       BUILD-AUD-ROW.
+           MOVE AD-SUBSYSTEM   TO WS-AUD-SUBSYSTEM.
+           MOVE AD-ACTION      TO WS-AUD-ACTION.
+           MOVE AD-ACTOR       TO WS-AUD-ACTOR.
+           MOVE AD-TARGET-TYPE TO WS-AUD-TARGET-TYPE.
+           MOVE AD-TARGET-ID   TO WS-AUD-TARGET-ID.
+           MOVE AD-PAYLOAD     TO WS-AUD-PAYLOAD-JSON.
+           MOVE AD-SEVERITY    TO WS-AUD-SEVERITY.
+           MOVE AD-EVENT-KEY   TO WS-AUD-EVENT-KEY.
+           MOVE FUNCTION NUMVAL(AD-BDATE-TXT) TO WS-AUD-BUSINESS-DATE.
+
+       DELETE-DRAINED-ROW.
+           EXEC SQL
+               DELETE FROM audit_outbox
+                WHERE outbox_id = :AD-OUTBOX-ID
+           END-EXEC.
+           IF SQLCODE = 0
+               EXEC SQL COMMIT END-EXEC
+           ELSE
+               MOVE SQLCODE TO AD-SQLCODE-DISP
+               DISPLAY "[AUD-DRAIN] delete error sqlcode="
+                       FUNCTION TRIM(AD-SQLCODE-DISP)
+                       " outbox_id=" AD-OUTBOX-ID UPON SYSERR
+               EXEC SQL ROLLBACK END-EXEC
+               MOVE 4 TO AD-EXIT-CODE
+               MOVE 'Y' TO AD-LOOP-DONE
+           END-IF.

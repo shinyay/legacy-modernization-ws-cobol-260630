@@ -1,0 +1,360 @@
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. AUDIT-QUERY-FORENSIC.
+       ENVIRONMENT DIVISION.
+       INPUT-OUTPUT SECTION.
+       FILE-CONTROL.
+           SELECT OUT-FILE
+               ASSIGN TO WS-OUT-PATH
+               ORGANIZATION IS LINE SEQUENTIAL
+               FILE STATUS IS WS-FS-OUT.
+           SELECT UUID-FILE
+               ASSIGN TO "/proc/sys/kernel/random/uuid"
+               ORGANIZATION IS LINE SEQUENTIAL
+               FILE STATUS IS WS-FS-UUID.
+
+       DATA DIVISION.
+       FILE SECTION.
+       FD  OUT-FILE.
+       01  OUT-LINE                  PIC X(4096).
+       FD  UUID-FILE.
+       01  UUID-IN-LINE              PIC X(64).
+
+       WORKING-STORAGE SECTION.
+       01  WS-FS-OUT                 PIC X(2).
+       01  WS-FS-UUID                PIC X(2).
+       01  WS-OUT-PATH               PIC X(120).
+       01  WS-CONN-FLAG              PIC X(1) VALUE "N".
+           88  WS-CONNECTED                   VALUE "Y".
+       01  WS-OUT-OPEN               PIC X(1) VALUE "N".
+       01  WS-CTR-ROWS               PIC 9(7) VALUE 0.
+       01  WS-FIRST-JSON             PIC X(1) VALUE "Y".
+
+       01  WS-QUERY-ID               PIC X(36).
+
+       01  WS-DISP-AUDIT-ID          PIC ZZZZZZZZZZZZZ9.
+       01  WS-DISP-ROW               PIC ZZZZZZ9.
+
+       01  WS-DATE-NUM               PIC 9(8).
+       01  WS-DATE-Y                 PIC 9(4).
+       01  WS-DATE-M                 PIC 9(2).
+       01  WS-DATE-D                 PIC 9(2).
+       01  WS-DATE-STR               PIC X(10).
+
+       EXEC SQL BEGIN DECLARE SECTION END-EXEC.
+
+       01  HV-DB-NAME                PIC X(80).
+       01  HV-DB-USER                PIC X(32).
+       01  HV-DB-PASS                PIC X(32).
+       01  HV-DATE-START             PIC X(10).
+       01  HV-DATE-END               PIC X(10).
+       01  HV-SUBSYSTEM              PIC X(30).
+       01  HV-ACTION                 PIC X(50).
+       01  HV-SEVERITY               PIC X(1).
+       01  HV-ACCT                   PIC X(13).
+       01  HV-MAX-ROWS               PIC S9(9) COMP-3.
+       01  HV-AUDIT-ID               PIC S9(15) COMP-3.
+       01  HV-OUT-BDATE              PIC X(10).
+       01  HV-OUT-TS                 PIC X(26).
+       01  HV-OUT-SUBSYSTEM          PIC X(30).
+       01  HV-OUT-ACTION             PIC X(50).
+       01  HV-OUT-ACTOR              PIC X(30).
+       01  HV-OUT-TARGET-TYPE        PIC X(20).
+       01  HV-OUT-TARGET-ID          PIC X(20).
+       01  HV-OUT-SEVERITY           PIC X(1).
+       01  HV-OUT-PAYLOAD            PIC X(2000).
+
+       EXEC SQL END DECLARE SECTION END-EXEC.
+
+       EXEC SQL INCLUDE sqlca END-EXEC.
+
+           COPY "aud-write-api.cpy".
+
+       LINKAGE SECTION.
+           COPY "audit-api.cpy".
+
+       PROCEDURE DIVISION USING AQF-INPUT AQF-OUTPUT.
+       MAIN-LOGIC.
+           PERFORM INIT-OUTPUT
+           PERFORM VALIDATE-INPUT
+           IF NOT AQF-OK GOBACK END-IF
+           PERFORM DB-CONNECT
+           IF NOT WS-CONNECTED
+               SET AQF-FATAL TO TRUE
+               GOBACK
+           END-IF
+           PERFORM GENERATE-QUERY-ID
+           PERFORM OPEN-OUT-FILE
+           IF NOT AQF-OK
+               PERFORM CLEANUP-AND-EXIT
+               GOBACK
+           END-IF
+           PERFORM EMIT-FORMAT-PREAMBLE
+           PERFORM EXECUTE-QUERY
+           PERFORM EMIT-FORMAT-POSTAMBLE
+           PERFORM CLOSE-OUT-FILE
+           PERFORM EMIT-META-AUDIT
+           PERFORM POPULATE-OUTPUT
+           PERFORM CLEANUP-AND-EXIT
+           GOBACK.
+
+       INIT-OUTPUT.
+           SET AQF-OK TO TRUE
+           MOVE 0 TO AQF-OUT-ROW-COUNT AQF-OUT-DURATION-MS
+                     WS-CTR-ROWS
+           MOVE SPACES TO AQF-OUT-QUERY-ID WS-QUERY-ID
+           MOVE "N" TO WS-CONN-FLAG WS-OUT-OPEN
+           MOVE "Y" TO WS-FIRST-JSON.
+
+       VALIDATE-INPUT.
+           IF AQF-DATE-START = 0 OR AQF-DATE-END = 0
+               SET AQF-INVALID-INPUT TO TRUE
+               EXIT PARAGRAPH
+           END-IF
+           IF AQF-DATE-START > AQF-DATE-END
+               SET AQF-INVALID-INPUT TO TRUE
+               EXIT PARAGRAPH
+           END-IF
+           IF AQF-OUTPUT-FILENAME = SPACES
+               SET AQF-INVALID-INPUT TO TRUE
+               EXIT PARAGRAPH
+           END-IF
+           IF NOT (AQF-FMT-TEXT OR AQF-FMT-CSV OR AQF-FMT-JSON)
+               SET AQF-INVALID-INPUT TO TRUE
+               EXIT PARAGRAPH
+           END-IF
+           IF AQF-MAX-ROWS = 0
+               MOVE 1000 TO AQF-MAX-ROWS
+           END-IF.
+
+       DB-CONNECT.
+           MOVE "banking" TO HV-DB-NAME
+           MOVE "cobol"   TO HV-DB-USER
+           MOVE "cobol"   TO HV-DB-PASS
+           EXEC SQL
+               CONNECT :HV-DB-USER IDENTIFIED BY :HV-DB-PASS
+                   USING :HV-DB-NAME
+           END-EXEC
+           IF SQLCODE = 0
+               SET WS-CONNECTED TO TRUE
+           END-IF.
+
+       GENERATE-QUERY-ID.
+           OPEN INPUT UUID-FILE
+           IF WS-FS-UUID = "00"
+               READ UUID-FILE INTO UUID-IN-LINE
+                   AT END CONTINUE
+               END-READ
+               CLOSE UUID-FILE
+               MOVE UUID-IN-LINE(1:36) TO WS-QUERY-ID
+           ELSE
+               MOVE "00000000-0000-4000-8000-000000000000"
+                                              TO WS-QUERY-ID
+           END-IF.
+
+       OPEN-OUT-FILE.
+           MOVE AQF-OUTPUT-FILENAME TO WS-OUT-PATH
+           OPEN OUTPUT OUT-FILE
+           IF WS-FS-OUT NOT = "00"
+               SET AQF-IO-FAIL TO TRUE
+               EXIT PARAGRAPH
+           END-IF
+           MOVE "Y" TO WS-OUT-OPEN.
+
+       EMIT-FORMAT-PREAMBLE.
+           EVALUATE TRUE
+               WHEN AQF-FMT-CSV
+                   MOVE "audit_id,bdate,ts,subsys,action,sev,payload"
+                                              TO OUT-LINE
+                   WRITE OUT-LINE
+               WHEN AQF-FMT-JSON
+                   MOVE "[" TO OUT-LINE
+                   WRITE OUT-LINE
+               WHEN AQF-FMT-TEXT
+                   STRING "=== Audit Forensic Result ==="
+                          DELIMITED BY SIZE INTO OUT-LINE
+                   WRITE OUT-LINE
+                   MOVE "audit_id|bdate|subsys|action|sev|payload"
+                                              TO OUT-LINE
+                   WRITE OUT-LINE
+           END-EVALUATE.
+
+       EMIT-FORMAT-POSTAMBLE.
+           IF AQF-FMT-JSON
+               MOVE "]" TO OUT-LINE
+               WRITE OUT-LINE
+           END-IF.
+
+       EXECUTE-QUERY.
+           PERFORM BUILD-DATE-HOST-VARS
+           MOVE AQF-SUBSYSTEM   TO HV-SUBSYSTEM
+           MOVE AQF-ACTION      TO HV-ACTION
+           MOVE AQF-SEVERITY    TO HV-SEVERITY
+           MOVE AQF-ACCOUNT-FILTER TO HV-ACCT
+           MOVE AQF-MAX-ROWS    TO HV-MAX-ROWS
+           EXEC SQL DECLARE AUDITCUR CURSOR FOR
+               SELECT audit_id, business_date, system_ts, subsystem,
+                      action, actor, severity,
+                      COALESCE(CAST(payload_json AS TEXT), '')
+                 FROM audit_log
+                WHERE business_date >=
+                      CAST(:HV-DATE-START AS DATE)
+                  AND business_date <=
+                      CAST(:HV-DATE-END AS DATE)
+                  AND (RTRIM(:HV-SUBSYSTEM) = ''
+                       OR TRIM(TRAILING FROM subsystem) =
+                          RTRIM(:HV-SUBSYSTEM))
+                  AND (RTRIM(:HV-ACTION) = ''
+                       OR TRIM(TRAILING FROM action) =
+                          RTRIM(:HV-ACTION))
+                  AND (:HV-SEVERITY = ' '
+                       OR severity = :HV-SEVERITY)
+                  AND (RTRIM(:HV-ACCT) = ''
+                       OR JSONB_EXTRACT_PATH_TEXT(
+                              payload_json, 'account_number') =
+                          RTRIM(:HV-ACCT))
+                ORDER BY system_ts DESC
+                LIMIT :HV-MAX-ROWS
+           END-EXEC
+           EXEC SQL OPEN AUDITCUR END-EXEC
+           IF SQLCODE NOT = 0
+               SET AQF-IO-FAIL TO TRUE
+               EXIT PARAGRAPH
+           END-IF
+           PERFORM FETCH-LOOP
+           EXEC SQL CLOSE AUDITCUR END-EXEC
+           EXEC SQL COMMIT END-EXEC.
+
+       BUILD-DATE-HOST-VARS.
+           MOVE AQF-DATE-START TO WS-DATE-NUM
+           PERFORM FORMAT-DATE-STR
+           MOVE WS-DATE-STR TO HV-DATE-START
+           MOVE AQF-DATE-END TO WS-DATE-NUM
+           PERFORM FORMAT-DATE-STR
+           MOVE WS-DATE-STR TO HV-DATE-END.
+
+       FORMAT-DATE-STR.
+           DIVIDE WS-DATE-NUM BY 10000 GIVING WS-DATE-Y
+           COMPUTE WS-DATE-M = FUNCTION MOD(WS-DATE-NUM / 100, 100)
+           COMPUTE WS-DATE-D = FUNCTION MOD(WS-DATE-NUM, 100)
+           MOVE "0000-00-00" TO WS-DATE-STR
+           STRING WS-DATE-Y "-" WS-DATE-M "-" WS-DATE-D
+                  DELIMITED BY SIZE INTO WS-DATE-STR.
+
+       FETCH-LOOP.
+           PERFORM UNTIL WS-CTR-ROWS >= AQF-MAX-ROWS
+               EXEC SQL
+                   FETCH AUDITCUR INTO
+                       :HV-AUDIT-ID, :HV-OUT-BDATE, :HV-OUT-TS,
+                       :HV-OUT-SUBSYSTEM, :HV-OUT-ACTION,
+                       :HV-OUT-ACTOR, :HV-OUT-SEVERITY,
+                       :HV-OUT-PAYLOAD
+               END-EXEC
+               IF SQLCODE = 100 OR SQLCODE NOT = 0
+                   EXIT PERFORM
+               END-IF
+               ADD 1 TO WS-CTR-ROWS
+               PERFORM EMIT-ROW
+           END-PERFORM.
+
+       EMIT-ROW.
+           EVALUATE TRUE
+               WHEN AQF-FMT-TEXT
+                   PERFORM EMIT-ROW-TEXT
+               WHEN AQF-FMT-CSV
+                   PERFORM EMIT-ROW-CSV
+               WHEN AQF-FMT-JSON
+                   PERFORM EMIT-ROW-JSON
+           END-EVALUATE.
+
+       EMIT-ROW-TEXT.
+           MOVE HV-AUDIT-ID TO WS-DISP-AUDIT-ID
+           MOVE SPACES TO OUT-LINE
+           STRING FUNCTION TRIM(WS-DISP-AUDIT-ID) " | "
+                  HV-OUT-BDATE " | "
+                  FUNCTION TRIM(HV-OUT-SUBSYSTEM) " | "
+                  FUNCTION TRIM(HV-OUT-ACTION) " | "
+                  HV-OUT-SEVERITY " | "
+                  FUNCTION TRIM(HV-OUT-PAYLOAD)
+                  DELIMITED BY SIZE INTO OUT-LINE
+           WRITE OUT-LINE.
+
+       EMIT-ROW-CSV.
+           MOVE HV-AUDIT-ID TO WS-DISP-AUDIT-ID
+           MOVE SPACES TO OUT-LINE
+           STRING FUNCTION TRIM(WS-DISP-AUDIT-ID) ","
+                  HV-OUT-BDATE ","
+                  HV-OUT-TS ","
+                  FUNCTION TRIM(HV-OUT-SUBSYSTEM) ","
+                  FUNCTION TRIM(HV-OUT-ACTION) ","
+                  FUNCTION TRIM(HV-OUT-ACTOR) ","
+                  HV-OUT-SEVERITY ","
+                  FUNCTION TRIM(HV-OUT-PAYLOAD)
+                  DELIMITED BY SIZE INTO OUT-LINE
+           WRITE OUT-LINE.
+
+       EMIT-ROW-JSON.
+           MOVE HV-AUDIT-ID TO WS-DISP-AUDIT-ID
+           MOVE SPACES TO OUT-LINE
+           IF WS-FIRST-JSON = "Y"
+               MOVE "N" TO WS-FIRST-JSON
+               STRING '  {"audit_id":' FUNCTION TRIM(WS-DISP-AUDIT-ID)
+                      ',"business_date":"' HV-OUT-BDATE '"'
+                      ',"subsystem":"'
+                      FUNCTION TRIM(HV-OUT-SUBSYSTEM) '"'
+                      ',"action":"'
+                      FUNCTION TRIM(HV-OUT-ACTION) '"'
+                      ',"severity":"' HV-OUT-SEVERITY '"'
+                      ',"payload":'
+                      FUNCTION TRIM(HV-OUT-PAYLOAD) '}'
+                      DELIMITED BY SIZE INTO OUT-LINE
+           ELSE
+               STRING ' ,{"audit_id":' FUNCTION TRIM(WS-DISP-AUDIT-ID)
+                      ',"business_date":"' HV-OUT-BDATE '"'
+                      ',"subsystem":"'
+                      FUNCTION TRIM(HV-OUT-SUBSYSTEM) '"'
+                      ',"action":"'
+                      FUNCTION TRIM(HV-OUT-ACTION) '"'
+                      ',"severity":"' HV-OUT-SEVERITY '"'
+                      ',"payload":'
+                      FUNCTION TRIM(HV-OUT-PAYLOAD) '}'
+                      DELIMITED BY SIZE INTO OUT-LINE
+           END-IF
+           WRITE OUT-LINE.
+
+       CLOSE-OUT-FILE.
+           IF WS-OUT-OPEN = "Y"
+               CLOSE OUT-FILE
+               MOVE "N" TO WS-OUT-OPEN
+           END-IF.
+
+       EMIT-META-AUDIT.
+           MOVE "21-audit"             TO WS-AUD-SUBSYSTEM
+           MOVE "AUDIT_QUERY_EXECUTED" TO WS-AUD-ACTION
+           MOVE AQF-OPERATOR-USER      TO WS-AUD-ACTOR
+           MOVE "QUERY"                TO WS-AUD-TARGET-TYPE
+           MOVE WS-QUERY-ID(1:20)      TO WS-AUD-TARGET-ID
+           MOVE "I"                    TO WS-AUD-SEVERITY
+           MOVE AQF-DATE-END           TO WS-AUD-BUSINESS-DATE
+           MOVE SPACES                 TO WS-AUD-PAYLOAD-JSON
+           MOVE WS-CTR-ROWS            TO WS-DISP-ROW
+           STRING '{"query_id":"' WS-QUERY-ID '"'
+                  ',"row_count":' FUNCTION TRIM(WS-DISP-ROW) '}'
+                  DELIMITED BY SIZE INTO WS-AUD-PAYLOAD-JSON
+           CALL "AUD-WRITE" USING WS-AUD-ROW WS-AUD-RC
+               ON EXCEPTION CONTINUE
+           END-CALL.
+
+       POPULATE-OUTPUT.
+           MOVE WS-CTR-ROWS   TO AQF-OUT-ROW-COUNT
+           MOVE WS-QUERY-ID   TO AQF-OUT-QUERY-ID.
+
+       CLEANUP-AND-EXIT.
+           IF WS-OUT-OPEN = "Y"
+               CLOSE OUT-FILE
+           END-IF
+           IF WS-CONNECTED
+               EXEC SQL DISCONNECT ALL END-EXEC
+               MOVE "N" TO WS-CONN-FLAG
+           END-IF.
+
+       END PROGRAM AUDIT-QUERY-FORENSIC.

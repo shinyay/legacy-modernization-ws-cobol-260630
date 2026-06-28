@@ -1,0 +1,503 @@
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. INQ-MAIN.
+       ENVIRONMENT DIVISION.
+       INPUT-OUTPUT SECTION.
+       FILE-CONTROL.
+
+       DATA DIVISION.
+       FILE SECTION.
+
+       WORKING-STORAGE SECTION.
+
+       01  WS-ARG-COUNT              PIC 9(2) VALUE 0.
+       01  WS-ARG-IDX                PIC 9(2).
+       01  WS-ARG-VALUE              PIC X(50).
+       01  WS-SCREEN-MODE-FLAG       PIC X(1) VALUE "N".
+           88  WS-SCREEN-MODE-ON              VALUE "S".
+
+       01  WS-CONN-FLAG              PIC X(1) VALUE "N".
+           88  WS-CONNECTED                   VALUE "Y".
+
+       01  WS-SESSION-START-TS       PIC 9(14).
+       01  WS-SESSION-END-TS         PIC 9(14).
+       01  WS-QUERIES-EXECUTED       PIC 9(5) VALUE 0.
+
+       01  WS-OPERATOR-USER          PIC X(32) VALUE "operator".
+
+       01  WS-MENU-CHOICE            PIC X(2).
+       01  WS-CRT-STATUS             PIC X(4) VALUE SPACES.
+
+       01  WS-CURRENT-ACCT           PIC X(13).
+       01  WS-CURRENT-CUST-ID        PIC 9(10).
+       01  WS-INPUT-LINE             PIC X(50).
+       01  WS-PAGE-NUM               PIC 9(4) VALUE 1.
+       01  WS-CSRCH-LAST-ID          PIC 9(10) VALUE 0.
+
+       01  WS-CURRENT-CUST-NAME      PIC X(60).
+       01  WS-CURRENT-BRANCH-NAME    PIC X(40).
+       01  WS-CURRENT-BALANCE        PIC S9(15) COMP-3 VALUE 0.
+       01  WS-CURRENT-PRODUCT        PIC X(3).
+       01  WS-CURRENT-STATUS         PIC X(1).
+       01  WS-ERROR-MSG              PIC X(70) VALUE SPACES.
+
+       01  WS-BAL-DISP               PIC -ZZZ,ZZZ,ZZZ,ZZ9.
+       01  WS-AMT-DISP               PIC ZZZZZZZZZZZZZZ9.
+
+       01  WS-CSRCH-HIT-COUNT        PIC 9(3) VALUE 0.
+
+           COPY "cust-api.cpy".
+
+           COPY "csrch-api.cpy".
+
+           COPY "acct-api.cpy".
+
+           COPY "br-api.cpy".
+
+           COPY "aud-write-api.cpy".
+
+       EXEC SQL BEGIN DECLARE SECTION END-EXEC.
+
+       01  HV-DB-NAME                PIC X(80).
+       01  HV-DB-USER                PIC X(32).
+       01  HV-DB-PASS                PIC X(32).
+       01  HV-ACCT-Q                 PIC X(13).
+       01  HV-BALANCE                PIC S9(15) COMP-3.
+       01  HV-TXN-DATE               PIC X(10).
+       01  HV-TXN-CAT                PIC X(2).
+       01  HV-TXN-AMOUNT             PIC S9(15) COMP-3.
+       01  HV-TXN-DESC               PIC X(120).
+       01  HV-PAGE-LIMIT             PIC S9(4) COMP-3.
+
+       EXEC SQL END DECLARE SECTION END-EXEC.
+
+       EXEC SQL INCLUDE sqlca END-EXEC.
+
+       LINKAGE SECTION.
+           COPY "inq-api.cpy".
+
+       SCREEN SECTION.
+
+       01  MAIN-MENU-SCREEN.
+           05  BLANK SCREEN.
+           05  LINE 1  COLUMN 1
+               VALUE "PRACTICE BANK INQUIRY TOOL" HIGHLIGHT.
+           05  LINE 3  COLUMN 1
+               VALUE "===========================================".
+           05  LINE 5  COLUMN 5
+               VALUE "1  - Account inquiry (by acct number)".
+           05  LINE 6  COLUMN 5
+               VALUE "2  - Customer inquiry (by customer ID)".
+           05  LINE 7  COLUMN 5
+               VALUE "3  - Customer substring search (address)".
+           05  LINE 8  COLUMN 5
+               VALUE "4  - Transaction history (by acct)".
+           05  LINE 9  COLUMN 5
+               VALUE "5  - Current balance (by acct)".
+           05  LINE 11 COLUMN 5
+               VALUE "9  - Help".
+           05  LINE 12 COLUMN 5
+               VALUE "0  - Exit application".
+           05  LINE 14 COLUMN 5
+               VALUE "Selection: ".
+           05  LINE 14 COLUMN 16
+               PIC X(2) USING WS-MENU-CHOICE.
+           05  LINE 23 COLUMN 1
+               PIC X(70) FROM WS-ERROR-MSG REVERSE-VIDEO.
+
+       01  ACCT-RESULT-SCREEN.
+           05  BLANK SCREEN.
+           05  LINE 1  COLUMN 1
+               VALUE "ACCOUNT INQUIRY RESULT" HIGHLIGHT.
+           05  LINE 3  COLUMN 1  VALUE "Account #:".
+           05  LINE 3  COLUMN 12 PIC X(13) FROM WS-CURRENT-ACCT.
+           05  LINE 4  COLUMN 1  VALUE "Customer :".
+           05  LINE 4  COLUMN 12 PIC X(60) FROM WS-CURRENT-CUST-NAME.
+           05  LINE 5  COLUMN 1  VALUE "Branch   :".
+           05  LINE 5  COLUMN 12 PIC X(40) FROM WS-CURRENT-BRANCH-NAME.
+           05  LINE 6  COLUMN 1  VALUE "Balance  :".
+           05  LINE 6  COLUMN 12 PIC -ZZZ,ZZZ,ZZZ,ZZ9
+                                 FROM WS-CURRENT-BALANCE.
+           05  LINE 23 COLUMN 1
+               VALUE "Press ENTER to return to main menu".
+
+       01  BAL-RESULT-SCREEN.
+           05  BLANK SCREEN.
+           05  LINE 1  COLUMN 1
+               VALUE "BALANCE INQUIRY RESULT" HIGHLIGHT.
+           05  LINE 3  COLUMN 1  VALUE "Account #:".
+           05  LINE 3  COLUMN 12 PIC X(13) FROM WS-CURRENT-ACCT.
+           05  LINE 4  COLUMN 1  VALUE "Balance  :".
+           05  LINE 4  COLUMN 12 PIC -ZZZ,ZZZ,ZZZ,ZZ9
+                                 FROM WS-CURRENT-BALANCE.
+           05  LINE 23 COLUMN 1  VALUE "Press ENTER to continue".
+
+       01  HELP-SCREEN.
+           05  BLANK SCREEN.
+           05  LINE 1  COLUMN 1
+               VALUE "PRACTICE BANK INQUIRY - HELP" HIGHLIGHT.
+           05  LINE 3  COLUMN 5  VALUE "1 = Account inquiry".
+           05  LINE 4  COLUMN 5  VALUE "2 = Customer inquiry".
+           05  LINE 5  COLUMN 5  VALUE "3 = Customer substring search".
+           05  LINE 6  COLUMN 5  VALUE "4 = Transaction history".
+           05  LINE 7  COLUMN 5  VALUE "5 = Current balance".
+           05  LINE 8  COLUMN 5  VALUE "9 = Help".
+           05  LINE 9  COLUMN 5  VALUE "0 = Exit".
+           05  LINE 23 COLUMN 1  VALUE "Press ENTER to continue".
+
+       PROCEDURE DIVISION.
+       MAIN-LOGIC.
+           PERFORM PARSE-ARGS
+           PERFORM INIT-SESSION
+           IF NOT WS-CONNECTED
+               DISPLAY "[ERROR] PG connection failed"
+               STOP RUN RETURNING 12
+           END-IF
+           PERFORM EMIT-SESSION-START-AUDIT
+           PERFORM RUN-EVENT-LOOP
+           PERFORM EMIT-SESSION-END-AUDIT
+           PERFORM CLEANUP-AND-EXIT
+           STOP RUN.
+
+       PARSE-ARGS.
+           ACCEPT WS-ARG-COUNT FROM ARGUMENT-NUMBER
+           IF WS-ARG-COUNT >= 1
+               MOVE 1 TO WS-ARG-IDX
+               DISPLAY WS-ARG-IDX UPON ARGUMENT-NUMBER
+               ACCEPT WS-ARG-VALUE FROM ARGUMENT-VALUE
+               EVALUATE FUNCTION TRIM(WS-ARG-VALUE)
+                   WHEN "--screen"
+                       SET WS-SCREEN-MODE-ON TO TRUE
+                   WHEN "--no-screen"
+                       MOVE "N" TO WS-SCREEN-MODE-FLAG
+                   WHEN OTHER
+                       MOVE "N" TO WS-SCREEN-MODE-FLAG
+               END-EVALUATE
+           END-IF.
+
+       INIT-SESSION.
+           ACCEPT WS-SESSION-START-TS FROM DATE YYYYMMDD
+           MULTIPLY WS-SESSION-START-TS BY 1000000
+                    GIVING WS-SESSION-START-TS
+           MOVE "banking" TO HV-DB-NAME
+           MOVE "cobol"   TO HV-DB-USER
+           MOVE "cobol"   TO HV-DB-PASS
+           EXEC SQL
+               CONNECT :HV-DB-USER IDENTIFIED BY :HV-DB-PASS
+                   USING :HV-DB-NAME
+           END-EXEC
+           IF SQLCODE = 0
+               SET WS-CONNECTED TO TRUE
+           END-IF.
+
+       RUN-EVENT-LOOP.
+           PERFORM UNTIL WS-MENU-CHOICE = "0 "
+                      OR WS-MENU-CHOICE = " 0"
+                      OR WS-MENU-CHOICE = "00"
+               PERFORM SHOW-MENU
+               PERFORM READ-MENU-CHOICE
+               PERFORM DISPATCH-CHOICE
+           END-PERFORM.
+
+       SHOW-MENU.
+           IF WS-SCREEN-MODE-ON
+               DISPLAY MAIN-MENU-SCREEN
+           ELSE
+               DISPLAY " "
+               DISPLAY "=== PRACTICE BANK INQUIRY TOOL ==="
+               DISPLAY "  1  Account inquiry"
+               DISPLAY "  2  Customer inquiry"
+               DISPLAY "  3  Customer substring search"
+               DISPLAY "  4  Transaction history"
+               DISPLAY "  5  Current balance"
+               DISPLAY "  9  Help"
+               DISPLAY "  0  Exit"
+               IF WS-ERROR-MSG NOT = SPACES
+                   DISPLAY "[ERROR] " WS-ERROR-MSG
+                   MOVE SPACES TO WS-ERROR-MSG
+               END-IF
+           END-IF.
+
+       READ-MENU-CHOICE.
+           IF WS-SCREEN-MODE-ON
+               ACCEPT MAIN-MENU-SCREEN
+           ELSE
+               DISPLAY "Selection: " NO ADVANCING
+               ACCEPT WS-MENU-CHOICE
+           END-IF.
+
+       DISPATCH-CHOICE.
+           EVALUATE FUNCTION TRIM(WS-MENU-CHOICE)
+               WHEN "1" PERFORM INQ-ACCT-MODE
+               WHEN "2" PERFORM INQ-CUST-MODE
+               WHEN "3" PERFORM INQ-CSRCH-MODE
+               WHEN "4" PERFORM INQ-TXN-HIST-MODE
+               WHEN "5" PERFORM INQ-BAL-MODE
+               WHEN "9" PERFORM INQ-DISPLAY-HELP
+               WHEN "0" CONTINUE
+               WHEN OTHER
+                   MOVE "Invalid menu selection" TO WS-ERROR-MSG
+           END-EVALUATE.
+
+       INQ-ACCT-MODE.
+           DISPLAY "Enter account number (13 digits): " NO ADVANCING
+           ACCEPT WS-INPUT-LINE
+           MOVE WS-INPUT-LINE(1:13) TO WS-CURRENT-ACCT
+           IF WS-CURRENT-ACCT = SPACES
+               MOVE "Account number required" TO WS-ERROR-MSG
+               EXIT PARAGRAPH
+           END-IF
+           MOVE WS-CURRENT-ACCT TO ACCT-LOOKUP-NUMBER
+           CALL "ACCT-LOOKUP" USING ACCT-LOOKUP-INPUT
+                                    ACCT-LOOKUP-OUTPUT
+                                    ACCT-LOOKUP-STATUS
+               ON EXCEPTION
+                   MOVE "ACCT-LOOKUP not callable" TO WS-ERROR-MSG
+                   EXIT PARAGRAPH
+           END-CALL
+           IF ACCT-LOOKUP-OK
+               MOVE ACCT-LO-CUST-ID  TO WS-CURRENT-CUST-ID
+               MOVE ACCT-LO-PRODUCT-CODE TO WS-CURRENT-PRODUCT
+               MOVE ACCT-LO-STATUS   TO WS-CURRENT-STATUS
+               PERFORM RESOLVE-CUST-NAME-FOR-ACCT
+               PERFORM RESOLVE-BRANCH-NAME
+               PERFORM FETCH-BALANCE
+               PERFORM DISPLAY-ACCT-RESULT
+               ADD 1 TO WS-QUERIES-EXECUTED
+               PERFORM EMIT-QUERY-AUDIT
+           ELSE
+               MOVE "Account not found" TO WS-ERROR-MSG
+           END-IF.
+
+       INQ-CUST-MODE.
+           DISPLAY "Enter customer ID (10 digits): " NO ADVANCING
+           ACCEPT WS-INPUT-LINE
+           MOVE FUNCTION NUMVAL(WS-INPUT-LINE(1:10))
+                                                 TO WS-CURRENT-CUST-ID
+           MOVE WS-CURRENT-CUST-ID TO CUST-IN-ID
+           MOVE "L" TO CUST-IN-OP
+           CALL "CUST-LOOKUP" USING CUST-INPUT CUST-OUTPUT
+               ON EXCEPTION
+                   MOVE "CUST-LOOKUP not callable" TO WS-ERROR-MSG
+                   EXIT PARAGRAPH
+           END-CALL
+           IF CUST-STATUS-OK
+               DISPLAY " "
+               DISPLAY "=== CUSTOMER INQUIRY RESULT ==="
+               DISPLAY "ID    : " CUST-OUT-ID
+               DISPLAY "Kana  : " CUST-OUT-KANA
+               DISPLAY "Kanji : " CUST-OUT-KANJI
+               DISPLAY "Phone : " CUST-OUT-PHONE
+               ADD 1 TO WS-QUERIES-EXECUTED
+               PERFORM EMIT-QUERY-AUDIT
+           ELSE
+               MOVE "Customer not found" TO WS-ERROR-MSG
+           END-IF.
+
+       INQ-CSRCH-MODE.
+           DISPLAY "Enter address substring: " NO ADVANCING
+           ACCEPT WS-INPUT-LINE
+           MOVE WS-INPUT-LINE TO CSRCH-ADDR-SUBSTR
+           MOVE 5  TO CSRCH-PAGE-SIZE
+           MOVE 0  TO CSRCH-START-AFTER
+           MOVE "D" TO CSRCH-OP
+           MOVE 0 TO WS-CSRCH-HIT-COUNT
+           PERFORM CSRCH-FETCH-LOOP
+           IF WS-CSRCH-HIT-COUNT = 0
+               MOVE "No customers found" TO WS-ERROR-MSG
+           ELSE
+               DISPLAY "(" WS-CSRCH-HIT-COUNT " hits found)"
+               ADD 1 TO WS-QUERIES-EXECUTED
+               PERFORM EMIT-QUERY-AUDIT
+           END-IF.
+
+       CSRCH-FETCH-LOOP.
+           PERFORM UNTIL WS-CSRCH-HIT-COUNT >= 5
+               CALL "CSRCH-BY-ADDRESS" USING CSRCH-INPUT CSRCH-OUTPUT
+                   ON EXCEPTION
+                       MOVE "CSRCH-BY-ADDRESS not callable"
+                                                       TO WS-ERROR-MSG
+                       EXIT PARAGRAPH
+               END-CALL
+               IF NOT CSRCH-OK
+                   EXIT PERFORM
+               END-IF
+               ADD 1 TO WS-CSRCH-HIT-COUNT
+               DISPLAY "  [" WS-CSRCH-HIT-COUNT "] "
+                       CSRCH-MATCH-ID " "
+                       CSRCH-MATCH-KANA(1:30)
+               MOVE CSRCH-LAST-ID TO CSRCH-START-AFTER
+               MOVE " " TO CSRCH-OP
+           END-PERFORM.
+
+       INQ-TXN-HIST-MODE.
+           DISPLAY "Enter account number (13 digits): " NO ADVANCING
+           ACCEPT WS-INPUT-LINE
+           MOVE WS-INPUT-LINE(1:13) TO WS-CURRENT-ACCT
+           MOVE WS-CURRENT-ACCT TO HV-ACCT-Q
+           MOVE 10 TO HV-PAGE-LIMIT
+           EXEC SQL DECLARE TXNHCUR CURSOR FOR
+               SELECT business_date, category, amount_jpy,
+                      COALESCE(description, '')
+                 FROM transactions
+                WHERE account_number = :HV-ACCT-Q
+                  AND status = 'PT'
+                ORDER BY business_date DESC, txn_id DESC
+                LIMIT :HV-PAGE-LIMIT
+           END-EXEC
+           EXEC SQL OPEN TXNHCUR END-EXEC
+           DISPLAY " "
+           DISPLAY "=== TXN HISTORY (= last 10) for " WS-CURRENT-ACCT
+           DISPLAY "Date       Cat   Amount         Description"
+           PERFORM UNTIL SQLCODE NOT = 0
+               EXEC SQL
+                   FETCH TXNHCUR INTO :HV-TXN-DATE, :HV-TXN-CAT,
+                                      :HV-TXN-AMOUNT, :HV-TXN-DESC
+               END-EXEC
+               IF SQLCODE NOT = 0
+                   EXIT PERFORM
+               END-IF
+               MOVE HV-TXN-AMOUNT TO WS-AMT-DISP
+               DISPLAY HV-TXN-DATE " " HV-TXN-CAT "   "
+                       FUNCTION TRIM(WS-AMT-DISP) "         "
+                       HV-TXN-DESC(1:40)
+           END-PERFORM
+           EXEC SQL CLOSE TXNHCUR END-EXEC
+           EXEC SQL COMMIT END-EXEC
+           ADD 1 TO WS-QUERIES-EXECUTED
+           PERFORM EMIT-QUERY-AUDIT.
+
+       INQ-BAL-MODE.
+           DISPLAY "Enter account number (13 digits): " NO ADVANCING
+           ACCEPT WS-INPUT-LINE
+           MOVE WS-INPUT-LINE(1:13) TO WS-CURRENT-ACCT
+           PERFORM FETCH-BALANCE
+           IF SQLCODE = 0
+               MOVE WS-CURRENT-BALANCE TO WS-BAL-DISP
+               DISPLAY " "
+               DISPLAY "=== BALANCE INQUIRY ==="
+               DISPLAY "Account: " WS-CURRENT-ACCT
+               DISPLAY "Balance: " WS-BAL-DISP
+               ADD 1 TO WS-QUERIES-EXECUTED
+               PERFORM EMIT-QUERY-AUDIT
+           ELSE
+               MOVE "Account/balance not found" TO WS-ERROR-MSG
+           END-IF.
+
+       INQ-DISPLAY-HELP.
+           IF WS-SCREEN-MODE-ON
+               DISPLAY HELP-SCREEN
+               ACCEPT HELP-SCREEN
+           ELSE
+               DISPLAY " "
+               DISPLAY "=== INQUIRY HELP ==="
+               DISPLAY "  1 = Account inquiry by acct number"
+               DISPLAY "  2 = Customer inquiry by customer ID"
+               DISPLAY "  3 = Customer substring search (address)"
+               DISPLAY "  4 = Transaction history (last 10)"
+               DISPLAY "  5 = Current balance"
+               DISPLAY "  9 = This help"
+               DISPLAY "  0 = Exit"
+           END-IF.
+
+       FETCH-BALANCE.
+           MOVE WS-CURRENT-ACCT TO HV-ACCT-Q
+           MOVE 0 TO WS-CURRENT-BALANCE HV-BALANCE
+           EXEC SQL
+               SELECT balance_jpy INTO :HV-BALANCE
+                 FROM balances
+                WHERE account_number = :HV-ACCT-Q
+           END-EXEC
+           IF SQLCODE = 0
+               MOVE HV-BALANCE TO WS-CURRENT-BALANCE
+           END-IF.
+
+       RESOLVE-CUST-NAME-FOR-ACCT.
+           MOVE WS-CURRENT-CUST-ID TO CUST-IN-ID
+           MOVE "L" TO CUST-IN-OP
+           MOVE SPACES TO WS-CURRENT-CUST-NAME
+           CALL "CUST-LOOKUP" USING CUST-INPUT CUST-OUTPUT
+               ON EXCEPTION CONTINUE
+           END-CALL
+           IF CUST-STATUS-OK
+               MOVE CUST-OUT-KANJI TO WS-CURRENT-CUST-NAME
+           END-IF.
+
+       RESOLVE-BRANCH-NAME.
+           MOVE WS-CURRENT-ACCT(1:3) TO BR-IN-CODE
+           MOVE "L" TO BR-IN-OP
+           MOVE SPACES TO WS-CURRENT-BRANCH-NAME
+           CALL "BR-LOOKUP" USING BR-INPUT BR-OUTPUT
+               ON EXCEPTION CONTINUE
+           END-CALL
+           IF BR-STATUS-OK
+               MOVE BR-OUT-NAME-KANJI TO WS-CURRENT-BRANCH-NAME
+           END-IF.
+
+       DISPLAY-ACCT-RESULT.
+           IF WS-SCREEN-MODE-ON
+               DISPLAY ACCT-RESULT-SCREEN
+               ACCEPT ACCT-RESULT-SCREEN
+           ELSE
+               MOVE WS-CURRENT-BALANCE TO WS-BAL-DISP
+               DISPLAY " "
+               DISPLAY "=== ACCOUNT INQUIRY RESULT ==="
+               DISPLAY "Account #: " WS-CURRENT-ACCT
+               DISPLAY "Customer : " WS-CURRENT-CUST-NAME
+               DISPLAY "Branch   : " WS-CURRENT-BRANCH-NAME
+               DISPLAY "Status   : " WS-CURRENT-STATUS
+               DISPLAY "Balance  : " WS-BAL-DISP
+           END-IF.
+
+       EMIT-SESSION-START-AUDIT.
+           MOVE "18-inquiry"          TO WS-AUD-SUBSYSTEM
+           MOVE "INQ_SESSION_START"   TO WS-AUD-ACTION
+           MOVE WS-OPERATOR-USER      TO WS-AUD-ACTOR
+           MOVE "SESSION"             TO WS-AUD-TARGET-TYPE
+           MOVE "INQUIRY"             TO WS-AUD-TARGET-ID
+           MOVE "I"                   TO WS-AUD-SEVERITY
+           ACCEPT WS-AUD-BUSINESS-DATE FROM DATE YYYYMMDD
+           MOVE SPACES                TO WS-AUD-PAYLOAD-JSON
+           STRING '{"user":"' FUNCTION TRIM(WS-OPERATOR-USER) '"}'
+                  DELIMITED BY SIZE INTO WS-AUD-PAYLOAD-JSON
+           CALL "AUD-WRITE" USING WS-AUD-ROW WS-AUD-RC
+               ON EXCEPTION CONTINUE
+           END-CALL.
+
+       EMIT-QUERY-AUDIT.
+           MOVE "18-inquiry"          TO WS-AUD-SUBSYSTEM
+           MOVE "INQ_QUERY_EXECUTED"  TO WS-AUD-ACTION
+           MOVE WS-OPERATOR-USER      TO WS-AUD-ACTOR
+           MOVE "QUERY"               TO WS-AUD-TARGET-TYPE
+           MOVE WS-MENU-CHOICE        TO WS-AUD-TARGET-ID
+           MOVE "I"                   TO WS-AUD-SEVERITY
+           ACCEPT WS-AUD-BUSINESS-DATE FROM DATE YYYYMMDD
+           MOVE SPACES                TO WS-AUD-PAYLOAD-JSON
+           STRING '{"mode":"' FUNCTION TRIM(WS-MENU-CHOICE) '"}'
+                  DELIMITED BY SIZE INTO WS-AUD-PAYLOAD-JSON
+           CALL "AUD-WRITE" USING WS-AUD-ROW WS-AUD-RC
+               ON EXCEPTION CONTINUE
+           END-CALL.
+
+       EMIT-SESSION-END-AUDIT.
+           MOVE "18-inquiry"          TO WS-AUD-SUBSYSTEM
+           MOVE "INQ_SESSION_END"     TO WS-AUD-ACTION
+           MOVE WS-OPERATOR-USER      TO WS-AUD-ACTOR
+           MOVE "SESSION"             TO WS-AUD-TARGET-TYPE
+           MOVE "INQUIRY"             TO WS-AUD-TARGET-ID
+           MOVE "I"                   TO WS-AUD-SEVERITY
+           ACCEPT WS-AUD-BUSINESS-DATE FROM DATE YYYYMMDD
+           MOVE SPACES                TO WS-AUD-PAYLOAD-JSON
+           MOVE WS-QUERIES-EXECUTED   TO WS-AMT-DISP
+           STRING '{"queries":"' FUNCTION TRIM(WS-AMT-DISP) '"}'
+                  DELIMITED BY SIZE INTO WS-AUD-PAYLOAD-JSON
+           CALL "AUD-WRITE" USING WS-AUD-ROW WS-AUD-RC
+               ON EXCEPTION CONTINUE
+           END-CALL.
+
+       CLEANUP-AND-EXIT.
+           IF WS-CONNECTED
+               EXEC SQL DISCONNECT ALL END-EXEC
+               MOVE "N" TO WS-CONN-FLAG
+           END-IF.
+
+       END PROGRAM INQ-MAIN.

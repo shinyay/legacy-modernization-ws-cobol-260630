@@ -1,0 +1,692 @@
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. FEE-CHARGE.
+       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+
+       01  WS-CONN-FLAG              PIC X(1) VALUE "N".
+           88  WS-CONNECTED                  VALUE "Y".
+
+       01  WS-CASH-ACCT              PIC X(13) VALUE "0010010000001".
+       01  WS-FEE-REV-ACCT           PIC X(13) VALUE "0010010000004".
+
+       01  WS-SNAPSHOT.
+           05  WS-SNAP-COUNT         PIC 9(4) VALUE 0.
+           05  WS-SNAP-ENTRY OCCURS 500 TIMES.
+               10 WS-SNAP-TXN-ID     PIC X(18).
+               10 WS-SNAP-ACCT       PIC X(13).
+               10 WS-SNAP-AMOUNT     PIC S9(15) COMP-3.
+               10 WS-SNAP-CATEGORY   PIC X(2).
+
+       01  WS-IDX                    PIC 9(4).
+
+       01  WS-CUR-TXN-ID             PIC X(18).
+       01  WS-CUR-ACCT               PIC X(13).
+       01  WS-CUR-AMOUNT             PIC S9(15) COMP-3.
+       01  WS-CUR-CATEGORY           PIC X(2).
+       01  WS-CUR-TIER               PIC 9(2).
+       01  WS-CUR-FEE                PIC S9(15) COMP-3.
+
+       01  WS-NEW-TXN-ID             PIC X(18).
+       01  WS-FEE-DESC               PIC X(120).
+       01  WS-NEXT-SERIAL            PIC 9(10) VALUE 0.
+
+       01  WS-CTR.
+           05  WS-CTR-SCANNED        PIC 9(7) VALUE 0.
+           05  WS-CTR-POSTED         PIC 9(7) VALUE 0.
+           05  WS-CTR-NO-FEE         PIC 9(7) VALUE 0.
+           05  WS-CTR-CLOSED         PIC 9(7) VALUE 0.
+           05  WS-CTR-NSF            PIC 9(7) VALUE 0.
+           05  WS-CTR-ALREADY        PIC 9(7) VALUE 0.
+           05  WS-CTR-HELPER         PIC 9(7) VALUE 0.
+           05  WS-CTR-TOTAL-FEE      PIC S9(15) COMP-3 VALUE 0.
+
+       01  WS-AMT-DISP               PIC ZZZZZZZZZZZZZZ9.
+       01  WS-BDATE-NUM              PIC 9(8).
+       01  WS-DATE-Y                 PIC 9(4).
+       01  WS-DATE-M                 PIC 9(2).
+       01  WS-DATE-D                 PIC 9(2).
+
+           COPY "acct-api.cpy".
+
+           COPY "fs-api.cpy".
+
+           COPY "double-entry-helper.cpy".
+
+           COPY "aud-write-api.cpy".
+
+           COPY "shared-log-api.cpy".
+
+           EXEC SQL BEGIN DECLARE SECTION END-EXEC.
+
+       01  HV-DB-NAME                PIC X(80).
+       01  HV-DB-USER                PIC X(32).
+       01  HV-DB-PASS                PIC X(32).
+       01  HV-BUSINESS-DATE          PIC X(10).
+       01  HV-BATCH-ID               PIC X(14).
+       01  HV-TXN-ID                 PIC X(18).
+       01  HV-ACCT                   PIC X(13).
+       01  HV-AMOUNT                 PIC S9(15) COMP-3.
+       01  HV-CATEGORY               PIC X(2).
+       01  HV-DR-ACCT                PIC X(13).
+       01  HV-CR-ACCT                PIC X(13).
+       01  HV-FEE-AMT                PIC S9(15) COMP-3.
+       01  HV-BALANCE                PIC S9(15) COMP-3.
+       01  HV-LOCK-READBACK          PIC X(13).
+       01  HV-POSTING-ID             PIC X(20).
+       01  HV-LINE-NO                PIC S9(4)  COMP-3.
+       01  HV-DEBIT-JPY              PIC S9(15) COMP-3.
+       01  HV-CREDIT-JPY             PIC S9(15) COMP-3.
+       01  HV-POSTING-ROLE           PIC X(2).
+       01  HV-SOURCE-SEQ             PIC S9(9)  COMP-3.
+       01  HV-MAX-SERIAL             PIC S9(10) COMP-3.
+       01  HV-EXISTS-CHECK           PIC S9(4)  COMP-3.
+       01  HV-DESCRIPTION            PIC X(120).
+
+       01  OBX-BDATE-TXT             PIC X(10).
+       01  OBX-SUBSYSTEM             PIC X(30).
+       01  OBX-ACTION                PIC X(50).
+       01  OBX-ACTOR                 PIC X(30).
+       01  OBX-TARGET-TYPE           PIC X(20).
+       01  OBX-TARGET-ID             PIC X(20).
+       01  OBX-PAYLOAD               PIC X(2000).
+       01  OBX-SEVERITY              PIC X(1).
+       01  OBX-EVENT-KEY             PIC X(80).
+
+           EXEC SQL END DECLARE SECTION END-EXEC.
+
+           EXEC SQL INCLUDE sqlca END-EXEC.
+
+       01  WS-SQLERRD-3              PIC S9(9) COMP.
+
+          COPY "ser-retry-state.cpy".
+
+          COPY "aud-drain-state.cpy".
+
+       LINKAGE SECTION.
+           COPY "fee-api.cpy".
+
+       PROCEDURE DIVISION USING FEE-CHARGE-INPUT FEE-CHARGE-OUTPUT.
+       MAIN-LOGIC.
+           PERFORM INIT-OUTPUT
+           PERFORM VALIDATE-INPUT
+           IF NOT FEE-CHARGE-OK GOBACK END-IF
+           PERFORM DB-CONNECT
+           IF NOT WS-CONNECTED
+               SET FEE-CHARGE-IO-FAIL TO TRUE
+               GOBACK
+           END-IF
+           MOVE "16-fee" TO WS-SER-SUBSYS
+           PERFORM INIT-SER-CONFIG
+           PERFORM DRAIN-AUDIT-OUTBOX
+           PERFORM VERIFY-SYS-ACCOUNTS
+           IF NOT FEE-CHARGE-OK
+               PERFORM CLEANUP-AND-EXIT
+               GOBACK
+           END-IF
+           PERFORM BUILD-HV-DATE
+           PERFORM ALLOCATE-NEXT-SERIAL
+           PERFORM OPEN-CURSOR-AND-SNAPSHOT
+           PERFORM PROCESS-SNAPSHOT
+           DISPLAY "ser_metrics retries=" WS-SER-RETRIES-TOTAL
+           PERFORM EMIT-SUMMARY-AUDIT
+           PERFORM DRAIN-AUDIT-OUTBOX
+           PERFORM POPULATE-OUTPUT
+           PERFORM CLEANUP-AND-EXIT
+           GOBACK.
+
+       INIT-OUTPUT.
+           SET FEE-CHARGE-OK TO TRUE
+           MOVE 0 TO FEE-OUT-TXNS-SCANNED
+                     FEE-OUT-CHARGES-POSTED
+                     FEE-OUT-SKIPPED-NO-FEE
+                     FEE-OUT-SKIPPED-CLOSED
+                     FEE-OUT-SKIPPED-NSF
+                     FEE-OUT-SKIPPED-ALREADY
+                     FEE-OUT-SKIPPED-HELPER
+                     FEE-OUT-TOTAL-FEE-JPY
+                     FEE-OUT-DURATION-SEC
+           MOVE 0 TO WS-CTR-SCANNED WS-CTR-POSTED WS-CTR-NO-FEE
+                     WS-CTR-CLOSED WS-CTR-NSF WS-CTR-ALREADY
+                     WS-CTR-HELPER WS-CTR-TOTAL-FEE
+                     WS-SNAP-COUNT WS-NEXT-SERIAL
+           MOVE 0 TO WS-SER-RETRIES-TOTAL
+           MOVE "N" TO WS-SER-STOP-FLAG
+           MOVE "N" TO WS-CONN-FLAG.
+
+       VALIDATE-INPUT.
+           IF FEE-CHARGE-BATCH-ID = SPACES OR
+              FEE-CHARGE-BUSINESS-DATE = 0
+               SET FEE-CHARGE-INVALID-INPUT TO TRUE
+           END-IF.
+
+       DB-CONNECT.
+           MOVE "banking" TO HV-DB-NAME
+           MOVE "cobol"   TO HV-DB-USER
+           MOVE "cobol"   TO HV-DB-PASS
+           EXEC SQL
+               CONNECT :HV-DB-USER IDENTIFIED BY :HV-DB-PASS
+                   USING :HV-DB-NAME
+           END-EXEC
+           IF SQLCODE = 0
+               SET WS-CONNECTED TO TRUE
+           END-IF.
+
+       VERIFY-SYS-ACCOUNTS.
+           MOVE WS-FEE-REV-ACCT TO HV-ACCT
+           EXEC SQL
+               SELECT 1 INTO :HV-EXISTS-CHECK
+                 FROM balances
+                WHERE account_number = :HV-ACCT
+           END-EXEC
+           IF SQLCODE NOT = 0
+               SET FEE-CHARGE-INVALID-INPUT TO TRUE
+           END-IF.
+
+       BUILD-HV-DATE.
+           MOVE FEE-CHARGE-BUSINESS-DATE TO WS-BDATE-NUM
+           DIVIDE WS-BDATE-NUM BY 10000 GIVING WS-DATE-Y
+           COMPUTE WS-DATE-M =
+               FUNCTION MOD(WS-BDATE-NUM / 100, 100)
+           COMPUTE WS-DATE-D = FUNCTION MOD(WS-BDATE-NUM, 100)
+           MOVE "0000-00-00" TO HV-BUSINESS-DATE
+           STRING WS-DATE-Y "-" WS-DATE-M "-" WS-DATE-D
+                  DELIMITED BY SIZE INTO HV-BUSINESS-DATE
+           MOVE FEE-CHARGE-BATCH-ID TO HV-BATCH-ID.
+
+       ALLOCATE-NEXT-SERIAL.
+           EXEC SQL
+               SELECT COALESCE(MAX(CAST(SUBSTRING(txn_id, 9, 10)
+                                       AS BIGINT)), 0)
+                 INTO :HV-MAX-SERIAL
+                 FROM transactions
+                WHERE business_date =
+                      CAST(:HV-BUSINESS-DATE AS DATE)
+                  AND source_system IN ('AUTODEBIT', 'INTEREST', 'FEE')
+           END-EXEC
+           MOVE HV-MAX-SERIAL TO WS-NEXT-SERIAL.
+
+       OPEN-CURSOR-AND-SNAPSHOT.
+           EXEC SQL
+               DECLARE FEECUR CURSOR FOR
+                   SELECT txn_id, account_number,
+                          amount_jpy, category
+                   FROM transactions
+                   WHERE business_date =
+                         CAST(:HV-BUSINESS-DATE AS DATE)
+                     AND category IN ('30', '40')
+                     AND source_system = 'BATCH'
+                     AND status = 'PT'
+                   ORDER BY txn_id
+           END-EXEC
+           EXEC SQL OPEN FEECUR END-EXEC
+           IF SQLCODE NOT = 0
+               SET FEE-CHARGE-IO-FAIL TO TRUE
+               EXIT PARAGRAPH
+           END-IF
+           PERFORM UNTIL WS-SNAP-COUNT >= 500
+               EXEC SQL
+                   FETCH FEECUR INTO
+                       :HV-TXN-ID, :HV-ACCT,
+                       :HV-AMOUNT, :HV-CATEGORY
+               END-EXEC
+               IF SQLCODE = 100
+                   EXIT PERFORM
+               END-IF
+               IF SQLCODE NOT = 0
+                   SET FEE-CHARGE-PARTIAL TO TRUE
+                   EXIT PERFORM
+               END-IF
+               ADD 1 TO WS-SNAP-COUNT
+               ADD 1 TO WS-CTR-SCANNED
+               MOVE HV-TXN-ID    TO WS-SNAP-TXN-ID(WS-SNAP-COUNT)
+               MOVE HV-ACCT      TO WS-SNAP-ACCT(WS-SNAP-COUNT)
+               MOVE HV-AMOUNT    TO WS-SNAP-AMOUNT(WS-SNAP-COUNT)
+               MOVE HV-CATEGORY  TO WS-SNAP-CATEGORY(WS-SNAP-COUNT)
+           END-PERFORM
+           EXEC SQL CLOSE FEECUR END-EXEC
+           EXEC SQL COMMIT END-EXEC.
+
+       PROCESS-SNAPSHOT.
+           MOVE 1 TO WS-IDX
+           PERFORM UNTIL WS-IDX > WS-SNAP-COUNT
+               MOVE WS-SNAP-TXN-ID(WS-IDX)   TO WS-CUR-TXN-ID
+               MOVE WS-SNAP-ACCT(WS-IDX)     TO WS-CUR-ACCT
+               MOVE WS-SNAP-AMOUNT(WS-IDX)   TO WS-CUR-AMOUNT
+               MOVE WS-SNAP-CATEGORY(WS-IDX) TO WS-CUR-CATEGORY
+               PERFORM PROCESS-ONE-TXN
+               ADD 1 TO WS-IDX
+               IF WS-SER-STOP
+                   MOVE WS-SNAP-COUNT TO WS-IDX
+                   ADD 1 TO WS-IDX
+               END-IF
+           END-PERFORM.
+
+       PROCESS-ONE-TXN.
+           IF WS-CUR-CATEGORY = "30"
+               ADD 1 TO WS-CTR-NO-FEE
+               EXIT PARAGRAPH
+           END-IF
+           EVALUATE TRUE
+               WHEN WS-CUR-AMOUNT < 30000
+                   MOVE 1 TO WS-CUR-TIER
+               WHEN WS-CUR-AMOUNT < 100000
+                   MOVE 2 TO WS-CUR-TIER
+               WHEN OTHER
+                   MOVE 3 TO WS-CUR-TIER
+           END-EVALUATE
+           MOVE WS-CUR-CATEGORY TO FS-IN-CATEGORY
+           MOVE WS-CUR-TIER     TO FS-IN-TIER
+           COMPUTE FS-IN-EFFECTIVE =
+               FUNCTION INTEGER(FEE-CHARGE-BUSINESS-DATE / 10000)
+               * 10000 + 101
+           MOVE 16 TO FS-OUT-STATUS
+           CALL "FEE-LOOKUP-BY-TIER" USING FS-INPUT FS-OUTPUT
+               ON EXCEPTION
+                   MOVE 16 TO FS-OUT-STATUS
+           END-CALL
+           IF NOT FS-OK OR FS-OUT-FEE-JPY <= 0
+               ADD 1 TO WS-CTR-NO-FEE
+               EXIT PARAGRAPH
+           END-IF
+           MOVE FS-OUT-FEE-JPY TO WS-CUR-FEE
+           MOVE WS-CUR-ACCT TO ACCT-EXISTS-NUMBER
+           MOVE "N" TO ACCT-EXISTS-FOUND
+           CALL "ACCT-EXISTS" USING ACCT-EXISTS-INPUT
+                                    ACCT-EXISTS-OUTPUT
+                                    ACCT-EXISTS-API-STATUS
+               ON EXCEPTION
+                   MOVE "N" TO ACCT-EXISTS-FOUND
+           END-CALL
+           IF NOT ACCT-EXISTS-YES
+               ADD 1 TO WS-CTR-CLOSED
+               EXIT PARAGRAPH
+           END-IF
+           IF ACCT-EXISTS-STATUS-CODE = "P" OR
+              ACCT-EXISTS-STATUS-CODE = "C"
+               ADD 1 TO WS-CTR-CLOSED
+               EXIT PARAGRAPH
+           END-IF
+           MOVE WS-CUR-ACCT TO HV-ACCT
+           EXEC SQL
+               SELECT balance_jpy INTO :HV-BALANCE
+                 FROM balances
+                WHERE account_number = :HV-ACCT
+           END-EXEC
+           IF SQLCODE NOT = 0
+               ADD 1 TO WS-CTR-CLOSED
+               EXIT PARAGRAPH
+           END-IF
+           IF HV-BALANCE < WS-CUR-FEE
+               ADD 1 TO WS-CTR-NSF
+               EXIT PARAGRAPH
+           END-IF
+           ADD 1 TO WS-NEXT-SERIAL
+           PERFORM BUILD-NEW-TXN-ID
+           MOVE WS-NEW-TXN-ID TO HV-TXN-ID
+           MOVE SPACES TO WS-FEE-DESC
+           STRING "Fee from " WS-CUR-TXN-ID
+                  DELIMITED BY SIZE INTO WS-FEE-DESC
+           MOVE WS-FEE-DESC TO HV-DESCRIPTION
+           EXEC SQL
+               SELECT 1 INTO :HV-EXISTS-CHECK
+                 FROM transactions
+                WHERE source_system = 'FEE'
+                  AND source_batch_id = :HV-BATCH-ID
+                  AND description = :HV-DESCRIPTION
+                  AND business_date =
+                      CAST(:HV-BUSINESS-DATE AS DATE)
+           END-EXEC
+           IF SQLCODE = 0
+               ADD 1 TO WS-CTR-ALREADY
+               EXIT PARAGRAPH
+           END-IF
+           MOVE 60 TO DEH-CAT
+           COMPUTE DEH-AMOUNT-JPY = 0 - WS-CUR-FEE
+           MOVE WS-CUR-ACCT     TO DEH-DR-ACCT
+           MOVE WS-FEE-REV-ACCT TO DEH-CR-ACCT
+           PERFORM DEH-VALIDATE
+           IF DEH-RC NOT = 0
+               ADD 1 TO WS-CTR-HELPER
+               EXIT PARAGRAPH
+           END-IF
+           PERFORM POST-PAIR-PARA.
+
+       BUILD-NEW-TXN-ID.
+           MOVE SPACES TO WS-NEW-TXN-ID
+           STRING HV-BUSINESS-DATE(1:4)
+                  HV-BUSINESS-DATE(6:2)
+                  HV-BUSINESS-DATE(9:2)
+                  WS-NEXT-SERIAL
+                  DELIMITED BY SIZE INTO WS-NEW-TXN-ID.
+
+       POST-PAIR-PARA.
+           MOVE 0 TO WS-RETRY-COUNT
+           MOVE WS-FAULT-CONFLICT-N TO WS-FAULT-REMAINING
+           MOVE "N" TO WS-FSM-DONE
+           MOVE WS-NEW-TXN-ID TO WS-SER-CTX
+           PERFORM UNTIL WS-FSM-DONE = "Y"
+               PERFORM POST-PAIR-ATTEMPT
+               EVALUATE WS-ATTEMPT-RESULT
+                   WHEN "OK"
+                       ADD 1 TO WS-CTR-POSTED
+                       ADD WS-CUR-FEE TO WS-CTR-TOTAL-FEE
+                       MOVE "Y" TO WS-FSM-DONE
+                   WHEN "NSF"
+                       ADD 1 TO WS-CTR-NSF
+                       MOVE "Y" TO WS-FSM-DONE
+                   WHEN "CONFLICT"
+                       ADD 1 TO WS-RETRY-COUNT
+                       ADD 1 TO WS-SER-RETRIES-TOTAL
+                       IF WS-RETRY-COUNT > WS-MAX-RETRIES
+                           SET FEE-CHARGE-PARTIAL TO TRUE
+                           MOVE "Y" TO WS-FSM-DONE
+                       ELSE
+                           PERFORM BACKOFF-SLEEP
+                       END-IF
+                   WHEN "INDOUBT"
+                       SET FEE-CHARGE-PARTIAL TO TRUE
+                       SET WS-SER-STOP TO TRUE
+                       MOVE "Y" TO WS-FSM-DONE
+                   WHEN OTHER
+                       SET FEE-CHARGE-PARTIAL TO TRUE
+                       MOVE "Y" TO WS-FSM-DONE
+               END-EVALUATE
+           END-PERFORM.
+
+       POST-PAIR-ATTEMPT.
+           MOVE "OK" TO WS-ATTEMPT-RESULT
+           PERFORM ROLLBACK-QUIET
+           EXEC SQL
+               SET TRANSACTION ISOLATION LEVEL SERIALIZABLE
+           END-EXEC
+           PERFORM CLASSIFY-SQL-RESULT
+           IF WS-ATTEMPT-RESULT NOT = "OK"
+               PERFORM ROLLBACK-QUIET
+               EXIT PARAGRAPH
+           END-IF
+           IF WS-FAULT-REMAINING > 0
+               SUBTRACT 1 FROM WS-FAULT-REMAINING
+               MOVE "CONFLICT" TO WS-ATTEMPT-RESULT
+               PERFORM ROLLBACK-QUIET
+               EXIT PARAGRAPH
+           END-IF
+           IF WS-CUR-ACCT < WS-FEE-REV-ACCT
+               MOVE WS-CUR-ACCT TO HV-DR-ACCT
+               EXEC SQL
+                   SELECT account_number INTO :HV-LOCK-READBACK
+                     FROM balances
+                    WHERE account_number = :HV-DR-ACCT
+                      FOR UPDATE
+               END-EXEC
+               MOVE WS-FEE-REV-ACCT TO HV-CR-ACCT
+               EXEC SQL
+                   SELECT account_number INTO :HV-LOCK-READBACK
+                     FROM balances
+                    WHERE account_number = :HV-CR-ACCT
+                      FOR UPDATE
+               END-EXEC
+           ELSE
+               MOVE WS-FEE-REV-ACCT TO HV-CR-ACCT
+               EXEC SQL
+                   SELECT account_number INTO :HV-LOCK-READBACK
+                     FROM balances
+                    WHERE account_number = :HV-CR-ACCT
+                      FOR UPDATE
+               END-EXEC
+               MOVE WS-CUR-ACCT TO HV-DR-ACCT
+               EXEC SQL
+                   SELECT account_number INTO :HV-LOCK-READBACK
+                     FROM balances
+                    WHERE account_number = :HV-DR-ACCT
+                      FOR UPDATE
+               END-EXEC
+           END-IF
+           PERFORM CLASSIFY-SQL-RESULT
+           IF WS-ATTEMPT-RESULT NOT = "OK"
+               PERFORM ROLLBACK-QUIET
+               EXIT PARAGRAPH
+           END-IF
+           MOVE WS-CUR-ACCT TO HV-DR-ACCT
+           EXEC SQL
+               SELECT balance_jpy INTO :HV-BALANCE
+                 FROM balances
+                WHERE account_number = :HV-DR-ACCT
+           END-EXEC
+           PERFORM CLASSIFY-SQL-RESULT
+           IF WS-ATTEMPT-RESULT NOT = "OK"
+               PERFORM ROLLBACK-QUIET
+               EXIT PARAGRAPH
+           END-IF
+           IF HV-BALANCE < WS-CUR-FEE
+               MOVE "NSF" TO WS-ATTEMPT-RESULT
+               PERFORM ROLLBACK-QUIET
+               EXIT PARAGRAPH
+           END-IF
+           MOVE WS-CUR-FEE TO HV-FEE-AMT
+           MOVE WS-NEXT-SERIAL TO HV-SOURCE-SEQ
+           MOVE WS-CUR-ACCT TO HV-DR-ACCT
+           EXEC SQL
+               INSERT INTO transactions
+                   (txn_id, business_date, system_ts, category,
+                    account_number, amount_jpy, currency,
+                    description, source_system,
+                    source_batch_id, source_seq, status,
+                    created_by, created_ts)
+               VALUES
+                   (:HV-TXN-ID,
+                    CAST(:HV-BUSINESS-DATE AS DATE),
+                    CURRENT_TIMESTAMP,
+                    '60',
+                    :HV-DR-ACCT,
+                    :HV-FEE-AMT,
+                    'JPY',
+                    :HV-DESCRIPTION,
+                    'FEE',
+                    :HV-BATCH-ID,
+                    :HV-SOURCE-SEQ,
+                    'PT',
+                    '16-fee',
+                    CURRENT_TIMESTAMP)
+           END-EXEC
+           PERFORM CLASSIFY-SQL-RESULT
+           IF WS-ATTEMPT-RESULT NOT = "OK"
+               PERFORM ROLLBACK-QUIET
+               EXIT PARAGRAPH
+           END-IF
+           STRING HV-TXN-ID "01" DELIMITED BY SIZE INTO HV-POSTING-ID
+           MOVE 1 TO HV-LINE-NO
+           MOVE WS-CUR-FEE TO HV-DEBIT-JPY
+           MOVE 0 TO HV-CREDIT-JPY
+           MOVE "DR" TO HV-POSTING-ROLE
+           EXEC SQL
+               INSERT INTO postings
+                   (posting_id, txn_id, line_no, account_number,
+                    debit_jpy, credit_jpy, posting_role,
+                    business_date, created_ts)
+               VALUES
+                   (:HV-POSTING-ID, :HV-TXN-ID, :HV-LINE-NO,
+                    :HV-DR-ACCT, :HV-DEBIT-JPY, :HV-CREDIT-JPY,
+                    :HV-POSTING-ROLE,
+                    CAST(:HV-BUSINESS-DATE AS DATE),
+                    CURRENT_TIMESTAMP)
+           END-EXEC
+           PERFORM CLASSIFY-SQL-RESULT
+           IF WS-ATTEMPT-RESULT NOT = "OK"
+               PERFORM ROLLBACK-QUIET
+               EXIT PARAGRAPH
+           END-IF
+           STRING HV-TXN-ID "02" DELIMITED BY SIZE INTO HV-POSTING-ID
+           MOVE 2 TO HV-LINE-NO
+           MOVE 0 TO HV-DEBIT-JPY
+           MOVE WS-CUR-FEE TO HV-CREDIT-JPY
+           MOVE "CR" TO HV-POSTING-ROLE
+           MOVE WS-FEE-REV-ACCT TO HV-CR-ACCT
+           EXEC SQL
+               INSERT INTO postings
+                   (posting_id, txn_id, line_no, account_number,
+                    debit_jpy, credit_jpy, posting_role,
+                    business_date, created_ts)
+               VALUES
+                   (:HV-POSTING-ID, :HV-TXN-ID, :HV-LINE-NO,
+                    :HV-CR-ACCT, :HV-DEBIT-JPY, :HV-CREDIT-JPY,
+                    :HV-POSTING-ROLE,
+                    CAST(:HV-BUSINESS-DATE AS DATE),
+                    CURRENT_TIMESTAMP)
+           END-EXEC
+           PERFORM CLASSIFY-SQL-RESULT
+           IF WS-ATTEMPT-RESULT NOT = "OK"
+               PERFORM ROLLBACK-QUIET
+               EXIT PARAGRAPH
+           END-IF
+           MOVE WS-CUR-ACCT TO HV-DR-ACCT
+           EXEC SQL
+               UPDATE balances
+                  SET balance_jpy = balance_jpy - :HV-FEE-AMT,
+                      last_txn_id = :HV-TXN-ID,
+                      last_business_date =
+                          CAST(:HV-BUSINESS-DATE AS DATE),
+                      updated_ts = CURRENT_TIMESTAMP
+                WHERE account_number = :HV-DR-ACCT
+           END-EXEC
+           PERFORM CLASSIFY-SQL-RESULT
+           IF WS-ATTEMPT-RESULT NOT = "OK"
+               PERFORM ROLLBACK-QUIET
+               EXIT PARAGRAPH
+           END-IF
+           MOVE SQLERRD(3) TO WS-SQLERRD-3
+           IF WS-SQLERRD-3 NOT = 1
+               MOVE "FATAL" TO WS-ATTEMPT-RESULT
+               PERFORM ROLLBACK-QUIET
+               EXIT PARAGRAPH
+           END-IF
+           MOVE WS-FEE-REV-ACCT TO HV-CR-ACCT
+           EXEC SQL
+               UPDATE balances
+                  SET balance_jpy = balance_jpy + :HV-FEE-AMT,
+                      last_txn_id = :HV-TXN-ID,
+                      last_business_date =
+                          CAST(:HV-BUSINESS-DATE AS DATE),
+                      updated_ts = CURRENT_TIMESTAMP
+                WHERE account_number = :HV-CR-ACCT
+           END-EXEC
+           PERFORM CLASSIFY-SQL-RESULT
+           IF WS-ATTEMPT-RESULT NOT = "OK"
+               PERFORM ROLLBACK-QUIET
+               EXIT PARAGRAPH
+           END-IF
+           MOVE SQLERRD(3) TO WS-SQLERRD-3
+           IF WS-SQLERRD-3 NOT = 1
+               MOVE "FATAL" TO WS-ATTEMPT-RESULT
+               PERFORM ROLLBACK-QUIET
+               EXIT PARAGRAPH
+           END-IF
+           PERFORM BUILD-CHARGE-AUDIT
+           PERFORM INSERT-OUTBOX-INTENT
+           IF WS-ATTEMPT-RESULT NOT = "OK"
+               PERFORM ROLLBACK-QUIET
+               EXIT PARAGRAPH
+           END-IF
+           EXEC SQL COMMIT END-EXEC
+           PERFORM CLASSIFY-COMMIT-RESULT.
+
+       ROLLBACK-QUIET.
+           EXEC SQL ROLLBACK END-EXEC.
+
+       BUILD-CHARGE-AUDIT.
+           MOVE "16-fee"          TO WS-AUD-SUBSYSTEM
+           MOVE "FEE_CHARGED"     TO WS-AUD-ACTION
+           MOVE "SYSTEM"          TO WS-AUD-ACTOR
+           MOVE "TXN"             TO WS-AUD-TARGET-TYPE
+           MOVE WS-NEW-TXN-ID     TO WS-AUD-TARGET-ID
+           MOVE "I"               TO WS-AUD-SEVERITY
+           MOVE FEE-CHARGE-BUSINESS-DATE TO WS-AUD-BUSINESS-DATE
+           MOVE SPACES TO WS-AUD-PAYLOAD-JSON
+           MOVE WS-CUR-FEE TO WS-AMT-DISP
+           STRING '{"txn":"' WS-NEW-TXN-ID
+                  '","acct":"' WS-CUR-ACCT
+                  '","fee":"' FUNCTION TRIM(WS-AMT-DISP) '"}'
+                  DELIMITED BY SIZE INTO WS-AUD-PAYLOAD-JSON
+           MOVE SPACES TO WS-AUD-EVENT-KEY
+           STRING FUNCTION TRIM(WS-AUD-ACTION) ":"
+                  FUNCTION TRIM(WS-AUD-TARGET-ID)
+                  DELIMITED BY SIZE INTO WS-AUD-EVENT-KEY.
+
+       INSERT-OUTBOX-INTENT.
+           MOVE WS-AUD-SUBSYSTEM    TO OBX-SUBSYSTEM
+           MOVE WS-AUD-ACTION       TO OBX-ACTION
+           MOVE WS-AUD-ACTOR        TO OBX-ACTOR
+           MOVE WS-AUD-TARGET-TYPE  TO OBX-TARGET-TYPE
+           MOVE WS-AUD-TARGET-ID    TO OBX-TARGET-ID
+           MOVE WS-AUD-SEVERITY     TO OBX-SEVERITY
+           MOVE WS-AUD-EVENT-KEY    TO OBX-EVENT-KEY
+           IF WS-AUD-PAYLOAD-JSON = SPACES
+               MOVE "{}" TO OBX-PAYLOAD
+           ELSE
+               MOVE WS-AUD-PAYLOAD-JSON TO OBX-PAYLOAD
+           END-IF
+           MOVE SPACES TO OBX-BDATE-TXT
+           STRING WS-AUD-BUSINESS-DATE(1:4) DELIMITED BY SIZE
+                  "-"                       DELIMITED BY SIZE
+                  WS-AUD-BUSINESS-DATE(5:2) DELIMITED BY SIZE
+                  "-"                       DELIMITED BY SIZE
+                  WS-AUD-BUSINESS-DATE(7:2) DELIMITED BY SIZE
+                  INTO OBX-BDATE-TXT
+           END-STRING
+           EXEC SQL
+               INSERT INTO audit_outbox (
+                   business_date, subsystem, action, actor,
+                   target_type, target_id, payload_json,
+                   severity, event_key
+               ) VALUES (
+                   CAST(:OBX-BDATE-TXT AS date),
+                   :OBX-SUBSYSTEM, :OBX-ACTION, :OBX-ACTOR,
+                   :OBX-TARGET-TYPE, :OBX-TARGET-ID,
+                   CAST(:OBX-PAYLOAD AS jsonb),
+                   :OBX-SEVERITY, :OBX-EVENT-KEY
+               )
+           END-EXEC
+           PERFORM CLASSIFY-SQL-RESULT.
+
+       EMIT-SUMMARY-AUDIT.
+           MOVE "16-fee"          TO WS-AUD-SUBSYSTEM
+           MOVE "FEE_DAILY_SUMM"  TO WS-AUD-ACTION
+           MOVE "SYSTEM"          TO WS-AUD-ACTOR
+           MOVE "BATCH"           TO WS-AUD-TARGET-TYPE
+           MOVE FEE-CHARGE-BATCH-ID TO WS-AUD-TARGET-ID
+           MOVE "I"               TO WS-AUD-SEVERITY
+           MOVE FEE-CHARGE-BUSINESS-DATE TO WS-AUD-BUSINESS-DATE
+           MOVE SPACES TO WS-AUD-PAYLOAD-JSON
+           MOVE WS-CTR-POSTED TO WS-AMT-DISP
+           STRING '{"batch":"' FEE-CHARGE-BATCH-ID
+                  '","posted":"' FUNCTION TRIM(WS-AMT-DISP) '"}'
+                  DELIMITED BY SIZE INTO WS-AUD-PAYLOAD-JSON
+           MOVE SPACES TO WS-AUD-EVENT-KEY
+           CALL "AUD-WRITE" USING WS-AUD-ROW WS-AUD-RC
+               ON EXCEPTION CONTINUE
+           END-CALL.
+
+       POPULATE-OUTPUT.
+           MOVE WS-CTR-SCANNED    TO FEE-OUT-TXNS-SCANNED
+           MOVE WS-CTR-POSTED     TO FEE-OUT-CHARGES-POSTED
+           MOVE WS-CTR-NO-FEE     TO FEE-OUT-SKIPPED-NO-FEE
+           MOVE WS-CTR-CLOSED     TO FEE-OUT-SKIPPED-CLOSED
+           MOVE WS-CTR-NSF        TO FEE-OUT-SKIPPED-NSF
+           MOVE WS-CTR-ALREADY    TO FEE-OUT-SKIPPED-ALREADY
+           MOVE WS-CTR-HELPER     TO FEE-OUT-SKIPPED-HELPER
+           MOVE WS-CTR-TOTAL-FEE  TO FEE-OUT-TOTAL-FEE-JPY.
+
+       CLEANUP-AND-EXIT.
+           IF WS-CONNECTED
+               EXEC SQL ROLLBACK END-EXEC
+               EXEC SQL DISCONNECT ALL END-EXEC
+               MOVE "N" TO WS-CONN-FLAG
+           END-IF.
+
+           COPY "double-entry-helper-procs.cpy".
+
+           COPY "ser-retry-procs.cpy".
+
+           COPY "aud-drain-procs.cpy".
+
+       END PROGRAM FEE-CHARGE.

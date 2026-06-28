@@ -1,0 +1,181 @@
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. IPST-REPORT-SUMMARY.
+       ENVIRONMENT DIVISION.
+       INPUT-OUTPUT SECTION.
+       FILE-CONTROL.
+           SELECT IPST-REPORT-FILE
+               ASSIGN TO WS-REPORT-PATH
+               ORGANIZATION IS LINE SEQUENTIAL
+               ACCESS MODE IS SEQUENTIAL
+               FILE STATUS IS WS-FS.
+
+       DATA DIVISION.
+       FILE SECTION.
+       FD  IPST-REPORT-FILE.
+       01  IPST-RPT-LINE             PIC X(120).
+
+       WORKING-STORAGE SECTION.
+       01  WS-FS                     PIC X(2).
+       01  WS-CONN-FLAG              PIC X(1) VALUE "N".
+           88  WS-CONNECTED                  VALUE "Y".
+       01  WS-REPORT-PATH            PIC X(80).
+       01  WS-CONSERVATION-PASS      PIC X(1) VALUE "Y".
+
+       01  WS-PG-CTR.
+           05  WS-PG-PT-COUNT        PIC 9(7) VALUE 0.
+           05  WS-PG-AC-REMAINING    PIC 9(7) VALUE 0.
+           05  WS-PG-TXN-SUM         PIC S9(15) COMP-3 VALUE 0.
+           05  WS-PG-ACCRUED-SUM     PIC S9(15) COMP-3 VALUE 0.
+
+           EXEC SQL BEGIN DECLARE SECTION END-EXEC.
+
+       01  HV-DB-NAME                PIC X(80).
+       01  HV-DB-USER                PIC X(32).
+       01  HV-DB-PASS                PIC X(32).
+       01  HV-BATCH-ID               PIC X(14).
+       01  HV-COUNT-RESULT           PIC S9(7) COMP-3.
+       01  HV-SUM-RESULT             PIC S9(15) COMP-3.
+
+           EXEC SQL END DECLARE SECTION END-EXEC.
+
+           EXEC SQL INCLUDE sqlca END-EXEC.
+
+       LINKAGE SECTION.
+           COPY "ipst-api.cpy".
+
+       PROCEDURE DIVISION USING IPST-REPORT-INPUT IPST-REPORT-OUTPUT.
+       MAIN-LOGIC.
+           PERFORM INIT-OUTPUT
+           PERFORM VALIDATE-INPUT
+           IF NOT IPST-RPT-OK GOBACK END-IF
+           PERFORM DB-CONNECT
+           IF NOT WS-CONNECTED
+               SET IPST-RPT-IO-FAIL TO TRUE
+               GOBACK
+           END-IF
+           PERFORM PG-CROSS-VERIFY
+           PERFORM CHECK-CONSERVATION
+           PERFORM WRITE-REPORT
+           PERFORM POPULATE-OUTPUT
+           PERFORM CLEANUP-AND-EXIT
+           GOBACK.
+
+       INIT-OUTPUT.
+           SET IPST-RPT-OK TO TRUE
+           MOVE 0 TO IPST-RPT-PRODUCTS-REPORTED
+                     IPST-RPT-TOTAL-POSTED
+                     IPST-RPT-TOTAL-POSTED-JPY
+                     IPST-RPT-PT-ROW-COUNT
+                     IPST-RPT-AC-REMAINING
+                     IPST-RPT-ACCRUED-SUM
+                     IPST-RPT-DURATION-SEC
+           MOVE "Y" TO IPST-RPT-CONSERVATION-PASS
+           MOVE "Y" TO WS-CONSERVATION-PASS
+           MOVE 0 TO WS-PG-PT-COUNT WS-PG-AC-REMAINING
+                     WS-PG-TXN-SUM WS-PG-ACCRUED-SUM
+           MOVE "N" TO WS-CONN-FLAG.
+
+       VALIDATE-INPUT.
+           IF IPST-RPT-BATCH-ID = SPACES OR
+              IPST-RPT-REPORT-FILENAME = SPACES
+               SET IPST-RPT-INVALID-INPUT TO TRUE
+           END-IF
+           MOVE IPST-RPT-REPORT-FILENAME TO WS-REPORT-PATH.
+
+       DB-CONNECT.
+           MOVE "banking" TO HV-DB-NAME
+           MOVE "cobol"   TO HV-DB-USER
+           MOVE "cobol"   TO HV-DB-PASS
+           EXEC SQL
+               CONNECT :HV-DB-USER IDENTIFIED BY :HV-DB-PASS
+                   USING :HV-DB-NAME
+           END-EXEC
+           IF SQLCODE = 0
+               SET WS-CONNECTED TO TRUE
+           END-IF.
+
+       PG-CROSS-VERIFY.
+           MOVE IPST-RPT-BATCH-ID TO HV-BATCH-ID
+           EXEC SQL
+               SELECT COUNT(*), COALESCE(SUM(amount_jpy), 0)
+                 INTO :HV-COUNT-RESULT, :HV-SUM-RESULT
+                 FROM transactions
+                WHERE source_system = 'INTEREST'
+                  AND source_batch_id = :HV-BATCH-ID
+           END-EXEC
+           IF SQLCODE = 0
+               MOVE HV-COUNT-RESULT TO WS-PG-PT-COUNT
+               MOVE HV-SUM-RESULT   TO WS-PG-TXN-SUM
+           END-IF
+           EXEC SQL
+               SELECT COUNT(*) INTO :HV-COUNT-RESULT
+                 FROM interest_accruals
+                WHERE status = 'AC'
+           END-EXEC
+           IF SQLCODE = 0
+               MOVE HV-COUNT-RESULT TO WS-PG-AC-REMAINING
+           END-IF
+           EXEC SQL
+               SELECT COALESCE(SUM(accrued_jpy), 0)
+                 INTO :HV-SUM-RESULT
+                 FROM interest_accruals
+                WHERE status = 'PT'
+                  AND posted_txn_id IN (
+                      SELECT txn_id FROM transactions
+                       WHERE source_system = 'INTEREST'
+                         AND source_batch_id = :HV-BATCH-ID)
+           END-EXEC
+           IF SQLCODE = 0
+               MOVE HV-SUM-RESULT TO WS-PG-ACCRUED-SUM
+           END-IF.
+
+       CHECK-CONSERVATION.
+           IF WS-PG-TXN-SUM NOT = WS-PG-ACCRUED-SUM
+               MOVE "N" TO WS-CONSERVATION-PASS
+               SET IPST-RPT-CONSERVATION-WARN TO TRUE
+           END-IF.
+
+       WRITE-REPORT.
+           OPEN OUTPUT IPST-REPORT-FILE
+           IF WS-FS NOT = "00"
+               SET IPST-RPT-IO-FAIL TO TRUE
+               EXIT PARAGRAPH
+           END-IF
+           MOVE "=== IPST Monthly Posting Report ===" TO IPST-RPT-LINE
+           WRITE IPST-RPT-LINE
+           STRING "Batch ID: " IPST-RPT-BATCH-ID
+                  DELIMITED BY SIZE INTO IPST-RPT-LINE
+           WRITE IPST-RPT-LINE
+           STRING "PT count:        " WS-PG-PT-COUNT
+                  DELIMITED BY SIZE INTO IPST-RPT-LINE
+           WRITE IPST-RPT-LINE
+           STRING "Txn JPY sum:     " WS-PG-TXN-SUM
+                  DELIMITED BY SIZE INTO IPST-RPT-LINE
+           WRITE IPST-RPT-LINE
+           STRING "Accrued JPY sum: " WS-PG-ACCRUED-SUM
+                  DELIMITED BY SIZE INTO IPST-RPT-LINE
+           WRITE IPST-RPT-LINE
+           STRING "AC remaining:    " WS-PG-AC-REMAINING
+                  DELIMITED BY SIZE INTO IPST-RPT-LINE
+           WRITE IPST-RPT-LINE
+           STRING "Conservation:    " WS-CONSERVATION-PASS
+                  DELIMITED BY SIZE INTO IPST-RPT-LINE
+           WRITE IPST-RPT-LINE
+           CLOSE IPST-REPORT-FILE.
+
+       POPULATE-OUTPUT.
+           MOVE WS-PG-PT-COUNT       TO IPST-RPT-TOTAL-POSTED
+           MOVE WS-PG-PT-COUNT       TO IPST-RPT-PT-ROW-COUNT
+           MOVE WS-PG-TXN-SUM        TO IPST-RPT-TOTAL-POSTED-JPY
+           MOVE WS-PG-AC-REMAINING   TO IPST-RPT-AC-REMAINING
+           MOVE WS-PG-ACCRUED-SUM    TO IPST-RPT-ACCRUED-SUM
+           MOVE WS-CONSERVATION-PASS TO IPST-RPT-CONSERVATION-PASS
+           MOVE 1 TO IPST-RPT-PRODUCTS-REPORTED.
+
+       CLEANUP-AND-EXIT.
+           IF WS-CONNECTED
+               EXEC SQL DISCONNECT ALL END-EXEC
+               MOVE "N" TO WS-CONN-FLAG
+           END-IF.
+
+       END PROGRAM IPST-REPORT-SUMMARY.

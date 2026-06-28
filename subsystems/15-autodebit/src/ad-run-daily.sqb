@@ -1,0 +1,909 @@
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. AD-RUN-DAILY.
+       ENVIRONMENT DIVISION.
+       INPUT-OUTPUT SECTION.
+       FILE-CONTROL.
+           SELECT AD-FAILED-FILE
+               ASSIGN TO WS-FAILED-FILENAME
+               ORGANIZATION IS SEQUENTIAL
+               ACCESS MODE IS SEQUENTIAL
+               FILE STATUS IS WS-AD-FAILED-FS.
+
+       DATA DIVISION.
+       FILE SECTION.
+       FD  AD-FAILED-FILE.
+       01  AD-FAILED-FD-REC          PIC X(200).
+
+       WORKING-STORAGE SECTION.
+
+       01  WS-CONN-FLAG              PIC X(1) VALUE "N".
+           88  WS-CONNECTED                  VALUE "Y".
+       01  WS-AD-FAILED-FS           PIC X(2).
+       01  WS-FILE-IO-ERROR          PIC X(1) VALUE "N".
+       01  WS-FAILED-FILENAME        PIC X(80).
+       01  WS-FILE-OPEN-FLAG         PIC X(1) VALUE "N".
+
+       01  WS-NEW-TXN-ID-FIELD       PIC X(18).
+
+       01  WS-CASH-ACCT              PIC X(13) VALUE "0010010000001".
+
+       01  WS-SNAPSHOT.
+           05  WS-SNAP-COUNT         PIC 9(4) VALUE 0.
+           05  WS-SNAP-ENTRY OCCURS 500 TIMES.
+               10 WS-SNAP-INST-ID    PIC X(20).
+               10 WS-SNAP-PAYER      PIC X(13).
+               10 WS-SNAP-PAYEE      PIC X(80).
+               10 WS-SNAP-AMOUNT     PIC S9(15) COMP-3.
+               10 WS-SNAP-FREQUENCY  PIC X(1).
+               10 WS-SNAP-DUE-DATE   PIC X(10).
+               10 WS-SNAP-FAILS      PIC 9(2).
+
+       01  WS-IDX                    PIC 9(4).
+
+       01  WS-CUR.
+           05  WS-CUR-INST-ID        PIC X(20).
+           05  WS-CUR-PAYER          PIC X(13).
+           05  WS-CUR-PAYEE          PIC X(80).
+           05  WS-CUR-AMOUNT         PIC S9(15) COMP-3.
+           05  WS-CUR-FREQUENCY      PIC X(1).
+           05  WS-CUR-DUE-DATE       PIC X(10).
+           05  WS-CUR-FAILS          PIC 9(2).
+           05  WS-NEW-FAILS          PIC 9(2).
+           05  WS-NEW-STATUS         PIC X(2).
+           05  WS-NEW-RESULT         PIC X(2).
+           05  WS-NEW-DUE-DATE       PIC X(10).
+
+       01  WS-FAIL-REASON-CODE       PIC X(2).
+       01  WS-FAIL-REASON-EXP        PIC X(20).
+
+       01  WS-DATE-NUM               PIC 9(8).
+       01  WS-DATE-Y                 PIC 9(4).
+       01  WS-DATE-M                 PIC 9(2).
+       01  WS-DATE-D                 PIC 9(2).
+       01  WS-NEW-DATE-NUM           PIC 9(8).
+       01  WS-NEW-Y                  PIC 9(4).
+       01  WS-NEW-M                  PIC 9(2).
+
+       01  WS-CTR.
+           05  WS-CTR-DUE            PIC 9(7) VALUE 0.
+           05  WS-CTR-POSTED         PIC 9(7) VALUE 0.
+           05  WS-CTR-FAILED-NF      PIC 9(7) VALUE 0.
+           05  WS-CTR-FAILED-CL      PIC 9(7) VALUE 0.
+           05  WS-CTR-FAILED-SU      PIC 9(7) VALUE 0.
+           05  WS-CTR-ALREADY        PIC 9(7) VALUE 0.
+           05  WS-CTR-HELPER         PIC 9(7) VALUE 0.
+           05  WS-CTR-AUTO-SP        PIC 9(7) VALUE 0.
+           05  WS-CTR-AUTO-TM        PIC 9(7) VALUE 0.
+           05  WS-CTR-TOTAL-JPY      PIC S9(15) COMP-3 VALUE 0.
+
+       01  WS-AMT-DISP               PIC ZZZZZZZZZZZZZZ9.
+
+           COPY "acct-api.cpy".
+
+           COPY "cal-api.cpy".
+
+           COPY "double-entry-helper.cpy".
+
+           COPY "aud-write-api.cpy".
+
+           COPY "shared-log-api.cpy".
+
+           COPY "ad-failed-rec.cpy".
+
+           EXEC SQL BEGIN DECLARE SECTION END-EXEC.
+
+       01  HV-DB-NAME                PIC X(80).
+       01  HV-DB-USER                PIC X(32).
+       01  HV-DB-PASS                PIC X(32).
+
+       01  HV-BUSINESS-DATE          PIC X(10).
+       01  HV-BATCH-ID               PIC X(14).
+       01  HV-INST-ID                PIC X(20).
+       01  HV-DESCRIPTION            PIC X(120).
+       01  HV-PAYER                  PIC X(13).
+       01  HV-PAYEE                  PIC X(80).
+       01  HV-AMOUNT                 PIC S9(15) COMP-3.
+       01  HV-FREQUENCY              PIC X(1).
+       01  HV-DUE-DATE               PIC X(10).
+       01  HV-FAILS                  PIC S9(4)  COMP-3.
+       01  HV-NEW-FAILS              PIC S9(4)  COMP-3.
+       01  HV-BALANCE                PIC S9(15) COMP-3.
+       01  HV-LOCK-READBACK          PIC X(13).
+       01  HV-NEW-STATUS             PIC X(2).
+       01  HV-NEW-RESULT             PIC X(2).
+       01  HV-NEW-DUE                PIC X(10).
+       01  HV-TXN-ID                 PIC X(18).
+       01  HV-POSTING-ID             PIC X(20).
+       01  HV-DEBIT-JPY              PIC S9(15) COMP-3.
+       01  HV-CREDIT-JPY             PIC S9(15) COMP-3.
+       01  HV-LINE-NO                PIC S9(4)  COMP-3.
+       01  HV-POSTING-ROLE           PIC X(2).
+       01  HV-SOURCE-SEQ             PIC S9(9)  COMP-3.
+       01  HV-MAX-SERIAL             PIC S9(10) COMP-3.
+       01  HV-EXISTS-CHECK           PIC S9(4)  COMP-3.
+
+       01  OBX-BDATE-TXT             PIC X(10).
+       01  OBX-SUBSYSTEM             PIC X(30).
+       01  OBX-ACTION                PIC X(50).
+       01  OBX-ACTOR                 PIC X(30).
+       01  OBX-TARGET-TYPE           PIC X(20).
+       01  OBX-TARGET-ID             PIC X(20).
+       01  OBX-PAYLOAD               PIC X(2000).
+       01  OBX-SEVERITY              PIC X(1).
+       01  OBX-EVENT-KEY             PIC X(80).
+
+           EXEC SQL END DECLARE SECTION END-EXEC.
+
+           EXEC SQL INCLUDE sqlca END-EXEC.
+
+       01  WS-SQLERRD-3              PIC S9(9) COMP.
+       01  WS-NEXT-SERIAL            PIC 9(10) VALUE 0.
+
+       01  WS-BDATE-NUM              PIC 9(8).
+
+          COPY "ser-retry-state.cpy".
+
+          COPY "aud-drain-state.cpy".
+
+       LINKAGE SECTION.
+           COPY "ad-api.cpy".
+
+       PROCEDURE DIVISION USING AD-RUN-INPUT AD-RUN-OUTPUT.
+       DECLARATIVES.
+       AD-FAILED-FILE-ERROR SECTION.
+           USE AFTER STANDARD ERROR PROCEDURE ON AD-FAILED-FILE.
+       AD-FAILED-FILE-ERROR-HANDLER.
+           MOVE "Y" TO WS-FILE-IO-ERROR
+           MOVE "15-autodebit" TO WS-LOG-SUBSYSTEM
+           MOVE "ERROR" TO WS-LOG-LEVEL
+           STRING "DECLARATIVES caught file error fs="
+                  WS-AD-FAILED-FS
+                  DELIMITED BY SIZE INTO WS-LOG-MESSAGE
+           CALL "SHARED-LOG" USING WS-LOG-MSG WS-LOG-RC
+               ON EXCEPTION CONTINUE
+           END-CALL.
+       END DECLARATIVES.
+
+       MAIN-SECTION SECTION.
+       MAIN-LOGIC.
+           PERFORM INIT-OUTPUT
+           PERFORM VALIDATE-INPUT
+           IF NOT AD-RUN-OK GOBACK END-IF
+           PERFORM DB-CONNECT
+           IF NOT WS-CONNECTED
+               SET AD-RUN-IO-FAIL TO TRUE
+               GOBACK
+           END-IF
+           MOVE "15-autodebit" TO WS-SER-SUBSYS
+           PERFORM INIT-SER-CONFIG
+           PERFORM DRAIN-AUDIT-OUTBOX
+           PERFORM BUILD-HV-DATE
+           PERFORM OPEN-FAILED-FILE
+           PERFORM ALLOCATE-NEXT-SERIAL
+           PERFORM OPEN-CURSOR-AND-SNAPSHOT
+           PERFORM PROCESS-SNAPSHOT
+           DISPLAY "ser_metrics retries=" WS-SER-RETRIES-TOTAL
+           PERFORM CLOSE-FAILED-FILE
+           PERFORM EMIT-SUMMARY-AUDIT
+           PERFORM DRAIN-AUDIT-OUTBOX
+           PERFORM POPULATE-OUTPUT
+           PERFORM CLEANUP-AND-EXIT
+           GOBACK.
+
+       INIT-OUTPUT.
+           SET AD-RUN-OK TO TRUE
+           MOVE 0 TO AD-OUT-INSTRUCTIONS-DUE
+                     AD-OUT-INSTRUCTIONS-POSTED
+                     AD-OUT-FAILED-NF
+                     AD-OUT-FAILED-CL
+                     AD-OUT-FAILED-SU
+                     AD-OUT-SKIPPED-ALREADY
+                     AD-OUT-SKIPPED-HELPER
+                     AD-OUT-AUTO-SUSPENDED
+                     AD-OUT-AUTO-TERMINATED
+                     AD-OUT-TOTAL-DEBITED-JPY
+                     AD-OUT-DURATION-SEC
+           MOVE 0 TO WS-CTR-DUE WS-CTR-POSTED WS-CTR-FAILED-NF
+                     WS-CTR-FAILED-CL WS-CTR-FAILED-SU
+                     WS-CTR-ALREADY WS-CTR-HELPER
+                     WS-CTR-AUTO-SP WS-CTR-AUTO-TM
+                     WS-CTR-TOTAL-JPY
+                     WS-SNAP-COUNT
+                     WS-NEXT-SERIAL
+           MOVE 0 TO WS-SER-RETRIES-TOTAL
+           MOVE "N" TO WS-SER-STOP-FLAG
+           MOVE "N" TO WS-CONN-FLAG
+                       WS-FILE-IO-ERROR
+                       WS-FILE-OPEN-FLAG.
+
+       VALIDATE-INPUT.
+           IF AD-RUN-BATCH-ID = SPACES OR
+              AD-RUN-BUSINESS-DATE = 0 OR
+              AD-RUN-FAILED-FILENAME = SPACES
+               SET AD-RUN-INVALID-INPUT TO TRUE
+           END-IF
+           MOVE AD-RUN-FAILED-FILENAME TO WS-FAILED-FILENAME.
+
+       DB-CONNECT.
+           MOVE "banking" TO HV-DB-NAME
+           MOVE "cobol"   TO HV-DB-USER
+           MOVE "cobol"   TO HV-DB-PASS
+           EXEC SQL
+               CONNECT :HV-DB-USER IDENTIFIED BY :HV-DB-PASS
+                   USING :HV-DB-NAME
+           END-EXEC
+           IF SQLCODE = 0
+               SET WS-CONNECTED TO TRUE
+           END-IF.
+
+       BUILD-HV-DATE.
+           MOVE AD-RUN-BUSINESS-DATE TO WS-BDATE-NUM
+           DIVIDE WS-BDATE-NUM BY 10000 GIVING WS-DATE-Y
+           COMPUTE WS-DATE-M =
+               FUNCTION MOD(WS-BDATE-NUM / 100, 100)
+           COMPUTE WS-DATE-D = FUNCTION MOD(WS-BDATE-NUM, 100)
+           MOVE "0000-00-00" TO HV-BUSINESS-DATE
+           STRING WS-DATE-Y "-" WS-DATE-M "-" WS-DATE-D
+                  DELIMITED BY SIZE INTO HV-BUSINESS-DATE
+           MOVE AD-RUN-BATCH-ID TO HV-BATCH-ID.
+
+       OPEN-FAILED-FILE.
+           OPEN EXTEND AD-FAILED-FILE
+           IF WS-AD-FAILED-FS NOT = "00"
+               OPEN OUTPUT AD-FAILED-FILE
+               IF WS-AD-FAILED-FS NOT = "00"
+                   SET AD-RUN-IO-FAIL TO TRUE
+                   EXIT PARAGRAPH
+               END-IF
+           END-IF
+           MOVE "Y" TO WS-FILE-OPEN-FLAG.
+
+       CLOSE-FAILED-FILE.
+           IF WS-FILE-OPEN-FLAG = "Y"
+               CLOSE AD-FAILED-FILE
+               MOVE "N" TO WS-FILE-OPEN-FLAG
+           END-IF.
+
+       ALLOCATE-NEXT-SERIAL.
+           EXEC SQL
+               SELECT COALESCE(MAX(CAST(SUBSTRING(txn_id, 9, 10)
+                                       AS BIGINT)), 0)
+                 INTO :HV-MAX-SERIAL
+                 FROM transactions
+                WHERE business_date =
+                      CAST(:HV-BUSINESS-DATE AS DATE)
+                  AND source_system IN ('AUTODEBIT', 'INTEREST', 'FEE')
+           END-EXEC
+           MOVE HV-MAX-SERIAL TO WS-NEXT-SERIAL.
+
+       OPEN-CURSOR-AND-SNAPSHOT.
+           EXEC SQL
+               DECLARE ADCURSOR CURSOR FOR
+                   SELECT instruction_id, payer_account,
+                          payee_name, amount_jpy, frequency,
+                          TO_CHAR(next_due_date, 'YYYY-MM-DD'),
+                          consecutive_failures
+                   FROM autodebit_schedules
+                   WHERE status = 'AC'
+                     AND next_due_date <=
+                         CAST(:HV-BUSINESS-DATE AS DATE)
+                   ORDER BY instruction_id
+           END-EXEC
+           EXEC SQL OPEN ADCURSOR END-EXEC
+           IF SQLCODE NOT = 0
+               SET AD-RUN-IO-FAIL TO TRUE
+               EXIT PARAGRAPH
+           END-IF
+           PERFORM UNTIL WS-SNAP-COUNT >= 500
+               EXEC SQL
+                   FETCH ADCURSOR INTO
+                       :HV-INST-ID, :HV-PAYER, :HV-PAYEE,
+                       :HV-AMOUNT, :HV-FREQUENCY, :HV-DUE-DATE,
+                       :HV-FAILS
+               END-EXEC
+               IF SQLCODE = 100
+                   EXIT PERFORM
+               END-IF
+               IF SQLCODE NOT = 0
+                   SET AD-RUN-PARTIAL TO TRUE
+                   EXIT PERFORM
+               END-IF
+               ADD 1 TO WS-SNAP-COUNT
+               ADD 1 TO WS-CTR-DUE
+               MOVE HV-INST-ID    TO WS-SNAP-INST-ID(WS-SNAP-COUNT)
+               MOVE HV-PAYER      TO WS-SNAP-PAYER(WS-SNAP-COUNT)
+               MOVE HV-PAYEE      TO WS-SNAP-PAYEE(WS-SNAP-COUNT)
+               MOVE HV-AMOUNT     TO WS-SNAP-AMOUNT(WS-SNAP-COUNT)
+               MOVE HV-FREQUENCY  TO WS-SNAP-FREQUENCY(WS-SNAP-COUNT)
+               MOVE HV-DUE-DATE   TO WS-SNAP-DUE-DATE(WS-SNAP-COUNT)
+               MOVE HV-FAILS      TO WS-SNAP-FAILS(WS-SNAP-COUNT)
+           END-PERFORM
+           EXEC SQL CLOSE ADCURSOR END-EXEC
+           EXEC SQL COMMIT END-EXEC.
+
+       PROCESS-SNAPSHOT.
+           MOVE 1 TO WS-IDX
+           PERFORM UNTIL WS-IDX > WS-SNAP-COUNT
+               MOVE WS-SNAP-INST-ID(WS-IDX)   TO WS-CUR-INST-ID
+               MOVE WS-SNAP-PAYER(WS-IDX)     TO WS-CUR-PAYER
+               MOVE WS-SNAP-PAYEE(WS-IDX)     TO WS-CUR-PAYEE
+               MOVE WS-SNAP-AMOUNT(WS-IDX)    TO WS-CUR-AMOUNT
+               MOVE WS-SNAP-FREQUENCY(WS-IDX) TO WS-CUR-FREQUENCY
+               MOVE WS-SNAP-DUE-DATE(WS-IDX)  TO WS-CUR-DUE-DATE
+               MOVE WS-SNAP-FAILS(WS-IDX)     TO WS-CUR-FAILS
+               PERFORM PROCESS-ONE-INSTRUCTION
+               ADD 1 TO WS-IDX
+               IF WS-SER-STOP
+                   MOVE WS-SNAP-COUNT TO WS-IDX
+                   ADD 1 TO WS-IDX
+               END-IF
+           END-PERFORM.
+
+       PROCESS-ONE-INSTRUCTION.
+           PERFORM CALL-ACCT-EXISTS
+           IF NOT ACCT-EXISTS-YES
+               MOVE "CL" TO WS-FAIL-REASON-CODE
+               MOVE "ACCOUNT_NOT_FOUND" TO WS-FAIL-REASON-EXP
+               ADD 1 TO WS-CTR-FAILED-CL
+               PERFORM HANDLE-FAILURE
+               EXIT PARAGRAPH
+           END-IF
+           EVALUATE ACCT-EXISTS-STATUS-CODE
+               WHEN "A" CONTINUE
+               WHEN "C"
+                   MOVE "CL" TO WS-FAIL-REASON-CODE
+                   MOVE "ACCOUNT_CLOSED" TO WS-FAIL-REASON-EXP
+                   ADD 1 TO WS-CTR-FAILED-CL
+                   PERFORM HANDLE-FAILURE
+                   EXIT PARAGRAPH
+               WHEN "D"
+                   MOVE "SU" TO WS-FAIL-REASON-CODE
+                   MOVE "ACCOUNT_DORMANT" TO WS-FAIL-REASON-EXP
+                   ADD 1 TO WS-CTR-FAILED-SU
+                   PERFORM HANDLE-FAILURE
+                   EXIT PARAGRAPH
+               WHEN "S"
+                   MOVE "SU" TO WS-FAIL-REASON-CODE
+                   MOVE "ACCOUNT_SUSPENDED" TO WS-FAIL-REASON-EXP
+                   ADD 1 TO WS-CTR-FAILED-SU
+                   PERFORM HANDLE-FAILURE
+                   EXIT PARAGRAPH
+               WHEN OTHER
+                   MOVE "CL" TO WS-FAIL-REASON-CODE
+                   MOVE "ACCOUNT_INELIGIBLE" TO WS-FAIL-REASON-EXP
+                   ADD 1 TO WS-CTR-FAILED-CL
+                   PERFORM HANDLE-FAILURE
+                   EXIT PARAGRAPH
+           END-EVALUATE
+           MOVE WS-CUR-PAYER TO HV-PAYER
+           EXEC SQL
+               SELECT balance_jpy INTO :HV-BALANCE
+                 FROM balances
+                WHERE account_number = :HV-PAYER
+           END-EXEC
+           IF SQLCODE NOT = 0
+               MOVE "CL" TO WS-FAIL-REASON-CODE
+               MOVE "BALANCE_ROW_MISSING" TO WS-FAIL-REASON-EXP
+               ADD 1 TO WS-CTR-FAILED-CL
+               PERFORM HANDLE-FAILURE
+               EXIT PARAGRAPH
+           END-IF
+           IF HV-BALANCE < WS-CUR-AMOUNT
+               MOVE "NF" TO WS-FAIL-REASON-CODE
+               MOVE "INSUFFICIENT_FUNDS" TO WS-FAIL-REASON-EXP
+               ADD 1 TO WS-CTR-FAILED-NF
+               PERFORM HANDLE-FAILURE
+               EXIT PARAGRAPH
+           END-IF
+           ADD 1 TO WS-NEXT-SERIAL
+           PERFORM BUILD-NEW-TXN-ID
+           MOVE WS-NEW-TXN-ID-FIELD TO HV-TXN-ID
+           MOVE SPACES TO HV-DESCRIPTION
+           STRING "Autodebit " WS-CUR-INST-ID
+                  DELIMITED BY SIZE INTO HV-DESCRIPTION
+           EXEC SQL
+               SELECT 1 INTO :HV-EXISTS-CHECK
+                 FROM transactions
+                WHERE source_system = 'AUTODEBIT'
+                  AND source_batch_id = :HV-BATCH-ID
+                  AND description = :HV-DESCRIPTION
+                  AND business_date =
+                      CAST(:HV-BUSINESS-DATE AS DATE)
+           END-EXEC
+           IF SQLCODE = 0
+               ADD 1 TO WS-CTR-ALREADY
+               EXIT PARAGRAPH
+           END-IF
+           MOVE 20 TO DEH-CAT
+           COMPUTE DEH-AMOUNT-JPY = 0 - WS-CUR-AMOUNT
+           MOVE WS-CUR-PAYER TO DEH-DR-ACCT
+           MOVE WS-CASH-ACCT TO DEH-CR-ACCT
+           PERFORM DEH-VALIDATE
+           IF DEH-RC NOT = 0
+               ADD 1 TO WS-CTR-HELPER
+               MOVE "15-autodebit" TO WS-LOG-SUBSYSTEM
+               MOVE "ERROR" TO WS-LOG-LEVEL
+               STRING "DEH validation failed inst="
+                      WS-CUR-INST-ID " rc=" DEH-RC
+                      DELIMITED BY SIZE INTO WS-LOG-MESSAGE
+               CALL "SHARED-LOG" USING WS-LOG-MSG WS-LOG-RC
+                   ON EXCEPTION CONTINUE
+               END-CALL
+               EXIT PARAGRAPH
+           END-IF
+           PERFORM POST-PAIR-PARA.
+
+       BUILD-NEW-TXN-ID.
+           MOVE SPACES TO WS-NEW-TXN-ID-FIELD
+           STRING HV-BUSINESS-DATE(1:4)
+                  HV-BUSINESS-DATE(6:2)
+                  HV-BUSINESS-DATE(9:2)
+                  WS-NEXT-SERIAL
+                  DELIMITED BY SIZE INTO WS-NEW-TXN-ID-FIELD.
+
+       CALL-ACCT-EXISTS.
+           MOVE WS-CUR-PAYER TO ACCT-EXISTS-NUMBER
+           MOVE "N" TO ACCT-EXISTS-FOUND
+           CALL "ACCT-EXISTS" USING ACCT-EXISTS-INPUT
+                                    ACCT-EXISTS-OUTPUT
+                                    ACCT-EXISTS-API-STATUS
+               ON EXCEPTION
+                   MOVE "N" TO ACCT-EXISTS-FOUND
+           END-CALL.
+
+       POST-PAIR-PARA.
+           MOVE 0 TO WS-RETRY-COUNT
+           MOVE WS-FAULT-CONFLICT-N TO WS-FAULT-REMAINING
+           MOVE "N" TO WS-FSM-DONE
+           MOVE WS-NEW-TXN-ID-FIELD TO WS-SER-CTX
+           PERFORM UNTIL WS-FSM-DONE = "Y"
+               PERFORM POST-PAIR-ATTEMPT
+               EVALUATE WS-ATTEMPT-RESULT
+                   WHEN "OK"
+                       ADD 1 TO WS-CTR-POSTED
+                       ADD WS-CUR-AMOUNT TO WS-CTR-TOTAL-JPY
+                       MOVE "Y" TO WS-FSM-DONE
+                   WHEN "NSF"
+                       MOVE "NF" TO WS-FAIL-REASON-CODE
+                       MOVE "INSUFFICIENT_FUNDS" TO WS-FAIL-REASON-EXP
+                       ADD 1 TO WS-CTR-FAILED-NF
+                       PERFORM HANDLE-FAILURE
+                       MOVE "Y" TO WS-FSM-DONE
+                   WHEN "CONFLICT"
+                       ADD 1 TO WS-RETRY-COUNT
+                       ADD 1 TO WS-SER-RETRIES-TOTAL
+                       IF WS-RETRY-COUNT > WS-MAX-RETRIES
+                           SET AD-RUN-PARTIAL TO TRUE
+                           MOVE "Y" TO WS-FSM-DONE
+                       ELSE
+                           PERFORM BACKOFF-SLEEP
+                       END-IF
+                   WHEN "INDOUBT"
+                       SET AD-RUN-PARTIAL TO TRUE
+                       SET WS-SER-STOP TO TRUE
+                       MOVE "Y" TO WS-FSM-DONE
+                   WHEN OTHER
+                       SET AD-RUN-PARTIAL TO TRUE
+                       MOVE "Y" TO WS-FSM-DONE
+               END-EVALUATE
+           END-PERFORM.
+
+       POST-PAIR-ATTEMPT.
+           MOVE "OK" TO WS-ATTEMPT-RESULT
+           PERFORM ROLLBACK-QUIET
+           EXEC SQL
+               SET TRANSACTION ISOLATION LEVEL SERIALIZABLE
+           END-EXEC
+           PERFORM CLASSIFY-SQL-RESULT
+           IF WS-ATTEMPT-RESULT NOT = "OK"
+               PERFORM ROLLBACK-QUIET
+               EXIT PARAGRAPH
+           END-IF
+           IF WS-FAULT-REMAINING > 0
+               SUBTRACT 1 FROM WS-FAULT-REMAINING
+               MOVE "CONFLICT" TO WS-ATTEMPT-RESULT
+               PERFORM ROLLBACK-QUIET
+               EXIT PARAGRAPH
+           END-IF
+           IF WS-CUR-PAYER < WS-CASH-ACCT
+               MOVE WS-CUR-PAYER TO HV-PAYER
+               EXEC SQL
+                   SELECT account_number INTO :HV-LOCK-READBACK
+                     FROM balances
+                    WHERE account_number = :HV-PAYER
+                      FOR UPDATE
+               END-EXEC
+               MOVE WS-CASH-ACCT TO HV-PAYER
+               EXEC SQL
+                   SELECT account_number INTO :HV-LOCK-READBACK
+                     FROM balances
+                    WHERE account_number = :HV-PAYER
+                      FOR UPDATE
+               END-EXEC
+           ELSE
+               MOVE WS-CASH-ACCT TO HV-PAYER
+               EXEC SQL
+                   SELECT account_number INTO :HV-LOCK-READBACK
+                     FROM balances
+                    WHERE account_number = :HV-PAYER
+                      FOR UPDATE
+               END-EXEC
+               MOVE WS-CUR-PAYER TO HV-PAYER
+               EXEC SQL
+                   SELECT account_number INTO :HV-LOCK-READBACK
+                     FROM balances
+                    WHERE account_number = :HV-PAYER
+                      FOR UPDATE
+               END-EXEC
+           END-IF
+           PERFORM CLASSIFY-SQL-RESULT
+           IF WS-ATTEMPT-RESULT NOT = "OK"
+               PERFORM ROLLBACK-QUIET
+               EXIT PARAGRAPH
+           END-IF
+           MOVE WS-CUR-PAYER TO HV-PAYER
+           EXEC SQL
+               SELECT balance_jpy INTO :HV-BALANCE
+                 FROM balances
+                WHERE account_number = :HV-PAYER
+           END-EXEC
+           PERFORM CLASSIFY-SQL-RESULT
+           IF WS-ATTEMPT-RESULT NOT = "OK"
+               PERFORM ROLLBACK-QUIET
+               EXIT PARAGRAPH
+           END-IF
+           IF HV-BALANCE < WS-CUR-AMOUNT
+               MOVE "NSF" TO WS-ATTEMPT-RESULT
+               PERFORM ROLLBACK-QUIET
+               EXIT PARAGRAPH
+           END-IF
+           MOVE WS-CUR-AMOUNT TO HV-AMOUNT
+           MOVE WS-NEXT-SERIAL TO HV-SOURCE-SEQ
+           MOVE WS-CUR-PAYER TO HV-PAYER
+           EXEC SQL
+               INSERT INTO transactions
+                   (txn_id, business_date, system_ts, category,
+                    account_number, amount_jpy, currency,
+                    description, source_system,
+                    source_batch_id, source_seq, status,
+                    created_by, created_ts)
+               VALUES
+                   (:HV-TXN-ID,
+                    CAST(:HV-BUSINESS-DATE AS DATE),
+                    CURRENT_TIMESTAMP,
+                    '20',
+                    :HV-PAYER,
+                    :HV-AMOUNT,
+                    'JPY',
+                    :HV-DESCRIPTION,
+                    'AUTODEBIT',
+                    :HV-BATCH-ID,
+                    :HV-SOURCE-SEQ,
+                    'PT',
+                    '15-autodebit',
+                    CURRENT_TIMESTAMP)
+           END-EXEC
+           PERFORM CLASSIFY-SQL-RESULT
+           IF WS-ATTEMPT-RESULT NOT = "OK"
+               PERFORM ROLLBACK-QUIET
+               EXIT PARAGRAPH
+           END-IF
+           STRING HV-TXN-ID "01" DELIMITED BY SIZE INTO HV-POSTING-ID
+           MOVE 1 TO HV-LINE-NO
+           MOVE WS-CUR-AMOUNT TO HV-DEBIT-JPY
+           MOVE 0 TO HV-CREDIT-JPY
+           MOVE "DR" TO HV-POSTING-ROLE
+           EXEC SQL
+               INSERT INTO postings
+                   (posting_id, txn_id, line_no, account_number,
+                    debit_jpy, credit_jpy, posting_role,
+                    business_date, created_ts)
+               VALUES
+                   (:HV-POSTING-ID, :HV-TXN-ID, :HV-LINE-NO,
+                    :HV-PAYER, :HV-DEBIT-JPY, :HV-CREDIT-JPY,
+                    :HV-POSTING-ROLE,
+                    CAST(:HV-BUSINESS-DATE AS DATE),
+                    CURRENT_TIMESTAMP)
+           END-EXEC
+           PERFORM CLASSIFY-SQL-RESULT
+           IF WS-ATTEMPT-RESULT NOT = "OK"
+               PERFORM ROLLBACK-QUIET
+               EXIT PARAGRAPH
+           END-IF
+           STRING HV-TXN-ID "02" DELIMITED BY SIZE INTO HV-POSTING-ID
+           MOVE 2 TO HV-LINE-NO
+           MOVE 0 TO HV-DEBIT-JPY
+           MOVE WS-CUR-AMOUNT TO HV-CREDIT-JPY
+           MOVE "CR" TO HV-POSTING-ROLE
+           MOVE WS-CASH-ACCT TO HV-PAYER
+           EXEC SQL
+               INSERT INTO postings
+                   (posting_id, txn_id, line_no, account_number,
+                    debit_jpy, credit_jpy, posting_role,
+                    business_date, created_ts)
+               VALUES
+                   (:HV-POSTING-ID, :HV-TXN-ID, :HV-LINE-NO,
+                    :HV-PAYER, :HV-DEBIT-JPY, :HV-CREDIT-JPY,
+                    :HV-POSTING-ROLE,
+                    CAST(:HV-BUSINESS-DATE AS DATE),
+                    CURRENT_TIMESTAMP)
+           END-EXEC
+           PERFORM CLASSIFY-SQL-RESULT
+           IF WS-ATTEMPT-RESULT NOT = "OK"
+               PERFORM ROLLBACK-QUIET
+               EXIT PARAGRAPH
+           END-IF
+           MOVE WS-CUR-PAYER TO HV-PAYER
+           EXEC SQL
+               UPDATE balances
+                  SET balance_jpy = balance_jpy - :HV-AMOUNT,
+                      last_txn_id = :HV-TXN-ID,
+                      last_business_date =
+                          CAST(:HV-BUSINESS-DATE AS DATE),
+                      updated_ts = CURRENT_TIMESTAMP
+                WHERE account_number = :HV-PAYER
+           END-EXEC
+           PERFORM CLASSIFY-SQL-RESULT
+           IF WS-ATTEMPT-RESULT NOT = "OK"
+               PERFORM ROLLBACK-QUIET
+               EXIT PARAGRAPH
+           END-IF
+           MOVE SQLERRD(3) TO WS-SQLERRD-3
+           IF WS-SQLERRD-3 NOT = 1
+               MOVE "FATAL" TO WS-ATTEMPT-RESULT
+               PERFORM ROLLBACK-QUIET
+               EXIT PARAGRAPH
+           END-IF
+           MOVE WS-CASH-ACCT TO HV-PAYER
+           EXEC SQL
+               UPDATE balances
+                  SET balance_jpy = balance_jpy + :HV-AMOUNT,
+                      last_txn_id = :HV-TXN-ID,
+                      last_business_date =
+                          CAST(:HV-BUSINESS-DATE AS DATE),
+                      updated_ts = CURRENT_TIMESTAMP
+                WHERE account_number = :HV-PAYER
+           END-EXEC
+           PERFORM CLASSIFY-SQL-RESULT
+           IF WS-ATTEMPT-RESULT NOT = "OK"
+               PERFORM ROLLBACK-QUIET
+               EXIT PARAGRAPH
+           END-IF
+           MOVE SQLERRD(3) TO WS-SQLERRD-3
+           IF WS-SQLERRD-3 NOT = 1
+               MOVE "FATAL" TO WS-ATTEMPT-RESULT
+               PERFORM ROLLBACK-QUIET
+               EXIT PARAGRAPH
+           END-IF
+           PERFORM ADVANCE-DUE-DATE
+           MOVE WS-NEW-DUE-DATE TO HV-NEW-DUE
+           MOVE WS-CUR-INST-ID TO HV-INST-ID
+           EXEC SQL
+               UPDATE autodebit_schedules
+                  SET last_attempt_date =
+                      CAST(:HV-BUSINESS-DATE AS DATE),
+                      last_attempt_result = 'OK',
+                      consecutive_failures = 0,
+                      next_due_date = CAST(:HV-NEW-DUE AS DATE),
+                      updated_ts = CURRENT_TIMESTAMP
+                WHERE instruction_id = :HV-INST-ID
+           END-EXEC
+           PERFORM CLASSIFY-SQL-RESULT
+           IF WS-ATTEMPT-RESULT NOT = "OK"
+               PERFORM ROLLBACK-QUIET
+               EXIT PARAGRAPH
+           END-IF
+           MOVE SQLERRD(3) TO WS-SQLERRD-3
+           IF WS-SQLERRD-3 NOT = 1
+               MOVE "FATAL" TO WS-ATTEMPT-RESULT
+               PERFORM ROLLBACK-QUIET
+               EXIT PARAGRAPH
+           END-IF
+           PERFORM BUILD-SUCCESS-AUDIT
+           PERFORM INSERT-OUTBOX-INTENT
+           IF WS-ATTEMPT-RESULT NOT = "OK"
+               PERFORM ROLLBACK-QUIET
+               EXIT PARAGRAPH
+           END-IF
+           EXEC SQL COMMIT END-EXEC
+           PERFORM CLASSIFY-COMMIT-RESULT.
+
+       ROLLBACK-QUIET.
+           EXEC SQL ROLLBACK END-EXEC.
+
+       HANDLE-FAILURE.
+           COMPUTE WS-NEW-FAILS = WS-CUR-FAILS + 1
+           MOVE "AC" TO WS-NEW-STATUS
+           IF WS-FAIL-REASON-CODE = "CL"
+               MOVE "TM" TO WS-NEW-STATUS
+               ADD 1 TO WS-CTR-AUTO-TM
+           ELSE
+               IF WS-NEW-FAILS >= 3
+                   MOVE "SP" TO WS-NEW-STATUS
+                   ADD 1 TO WS-CTR-AUTO-SP
+               END-IF
+           END-IF
+           MOVE WS-CUR-INST-ID TO HV-INST-ID
+           MOVE WS-NEW-FAILS   TO HV-NEW-FAILS
+           MOVE WS-NEW-STATUS  TO HV-NEW-STATUS
+           MOVE WS-FAIL-REASON-CODE TO HV-NEW-RESULT
+           EXEC SQL
+               UPDATE autodebit_schedules
+                  SET last_attempt_date =
+                      CAST(:HV-BUSINESS-DATE AS DATE),
+                      last_attempt_result = :HV-NEW-RESULT,
+                      consecutive_failures = :HV-NEW-FAILS,
+                      status = :HV-NEW-STATUS,
+                      updated_ts = CURRENT_TIMESTAMP
+                WHERE instruction_id = :HV-INST-ID
+           END-EXEC
+           IF SQLCODE = 0
+               EXEC SQL COMMIT END-EXEC
+               PERFORM WRITE-FAILED-RECORD
+               PERFORM EMIT-FAILURE-AUDIT
+           ELSE
+               EXEC SQL ROLLBACK END-EXEC
+           END-IF.
+
+       WRITE-FAILED-RECORD.
+           MOVE WS-CUR-INST-ID    TO ADF-INSTRUCTION-ID
+           MOVE AD-RUN-BUSINESS-DATE TO ADF-BUSINESS-DATE
+           MOVE WS-CUR-PAYER      TO ADF-PAYER-ACCOUNT
+           MOVE WS-CUR-PAYEE      TO ADF-PAYEE-NAME
+           MOVE WS-CUR-AMOUNT     TO ADF-AMOUNT-JPY
+           MOVE WS-FAIL-REASON-CODE TO ADF-REASON-CODE
+           MOVE WS-FAIL-REASON-EXP TO ADF-REASON-EXPANDED
+           MOVE WS-NEW-FAILS      TO ADF-CONSECUTIVE-FAILS
+           MOVE AD-RUN-BUSINESS-DATE TO ADF-NEXT-ATTEMPT-DATE
+           MOVE 0                 TO ADF-ATTEMPTED-AT-TS
+           MOVE SPACES            TO ADF-FILLER
+           WRITE AD-FAILED-FD-REC FROM AD-FAILED-REC.
+
+       ADVANCE-DUE-DATE.
+           MOVE AD-RUN-BUSINESS-DATE TO WS-NEW-DATE-NUM
+           EVALUATE WS-CUR-FREQUENCY
+               WHEN "D"
+                   ADD 1 TO WS-NEW-DATE-NUM
+               WHEN "W"
+                   ADD 7 TO WS-NEW-DATE-NUM
+               WHEN "M"
+                   DIVIDE WS-NEW-DATE-NUM BY 10000 GIVING WS-NEW-Y
+                   COMPUTE WS-NEW-M =
+                       FUNCTION MOD(WS-NEW-DATE-NUM / 100, 100)
+                   ADD 1 TO WS-NEW-M
+                   IF WS-NEW-M > 12
+                       MOVE 1 TO WS-NEW-M
+                       ADD 1 TO WS-NEW-Y
+                   END-IF
+                   COMPUTE WS-NEW-DATE-NUM =
+                       WS-NEW-Y * 10000 + WS-NEW-M * 100 + 1
+           END-EVALUATE
+           DIVIDE WS-NEW-DATE-NUM BY 10000 GIVING WS-NEW-Y
+           COMPUTE WS-NEW-M =
+               FUNCTION MOD(WS-NEW-DATE-NUM / 100, 100)
+           COMPUTE WS-DATE-D =
+               FUNCTION MOD(WS-NEW-DATE-NUM, 100)
+           IF WS-DATE-D = 0
+               MOVE 1 TO WS-DATE-D
+           END-IF
+           MOVE "0000-00-00" TO WS-NEW-DUE-DATE
+           STRING WS-NEW-Y "-" WS-NEW-M "-" WS-DATE-D
+                  DELIMITED BY SIZE INTO WS-NEW-DUE-DATE.
+
+       BUILD-SUCCESS-AUDIT.
+           MOVE "15-autodebit"    TO WS-AUD-SUBSYSTEM
+           MOVE "AUTODEBIT_SUCC"  TO WS-AUD-ACTION
+           MOVE "SYSTEM"          TO WS-AUD-ACTOR
+           MOVE "TXN"             TO WS-AUD-TARGET-TYPE
+           MOVE WS-NEW-TXN-ID-FIELD TO WS-AUD-TARGET-ID
+           MOVE "I"               TO WS-AUD-SEVERITY
+           MOVE AD-RUN-BUSINESS-DATE TO WS-AUD-BUSINESS-DATE
+           MOVE SPACES TO WS-AUD-PAYLOAD-JSON
+           MOVE WS-CUR-AMOUNT TO WS-AMT-DISP
+           STRING '{"inst":"' WS-CUR-INST-ID
+                  '","acct":"' WS-CUR-PAYER
+                  '","amt":"' FUNCTION TRIM(WS-AMT-DISP) '"}'
+                  DELIMITED BY SIZE INTO WS-AUD-PAYLOAD-JSON
+           MOVE SPACES TO WS-AUD-EVENT-KEY
+           STRING FUNCTION TRIM(WS-AUD-ACTION) ":"
+                  FUNCTION TRIM(WS-AUD-TARGET-ID)
+                  DELIMITED BY SIZE INTO WS-AUD-EVENT-KEY.
+
+       INSERT-OUTBOX-INTENT.
+           MOVE WS-AUD-SUBSYSTEM    TO OBX-SUBSYSTEM
+           MOVE WS-AUD-ACTION       TO OBX-ACTION
+           MOVE WS-AUD-ACTOR        TO OBX-ACTOR
+           MOVE WS-AUD-TARGET-TYPE  TO OBX-TARGET-TYPE
+           MOVE WS-AUD-TARGET-ID    TO OBX-TARGET-ID
+           MOVE WS-AUD-SEVERITY     TO OBX-SEVERITY
+           MOVE WS-AUD-EVENT-KEY    TO OBX-EVENT-KEY
+           IF WS-AUD-PAYLOAD-JSON = SPACES
+               MOVE "{}" TO OBX-PAYLOAD
+           ELSE
+               MOVE WS-AUD-PAYLOAD-JSON TO OBX-PAYLOAD
+           END-IF
+           MOVE SPACES TO OBX-BDATE-TXT
+           STRING WS-AUD-BUSINESS-DATE(1:4) DELIMITED BY SIZE
+                  "-"                       DELIMITED BY SIZE
+                  WS-AUD-BUSINESS-DATE(5:2) DELIMITED BY SIZE
+                  "-"                       DELIMITED BY SIZE
+                  WS-AUD-BUSINESS-DATE(7:2) DELIMITED BY SIZE
+                  INTO OBX-BDATE-TXT
+           END-STRING
+           EXEC SQL
+               INSERT INTO audit_outbox (
+                   business_date, subsystem, action, actor,
+                   target_type, target_id, payload_json,
+                   severity, event_key
+               ) VALUES (
+                   CAST(:OBX-BDATE-TXT AS date),
+                   :OBX-SUBSYSTEM, :OBX-ACTION, :OBX-ACTOR,
+                   :OBX-TARGET-TYPE, :OBX-TARGET-ID,
+                   CAST(:OBX-PAYLOAD AS jsonb),
+                   :OBX-SEVERITY, :OBX-EVENT-KEY
+               )
+           END-EXEC
+           PERFORM CLASSIFY-SQL-RESULT.
+
+       EMIT-FAILURE-AUDIT.
+           MOVE "15-autodebit"    TO WS-AUD-SUBSYSTEM
+           MOVE "AUTODEBIT_FAIL"  TO WS-AUD-ACTION
+           MOVE "SYSTEM"          TO WS-AUD-ACTOR
+           MOVE "INST"            TO WS-AUD-TARGET-TYPE
+           MOVE WS-CUR-INST-ID    TO WS-AUD-TARGET-ID
+           MOVE "W"               TO WS-AUD-SEVERITY
+           MOVE AD-RUN-BUSINESS-DATE TO WS-AUD-BUSINESS-DATE
+           MOVE SPACES TO WS-AUD-PAYLOAD-JSON
+           STRING '{"inst":"' WS-CUR-INST-ID
+                  '","reason":"' WS-FAIL-REASON-CODE
+                  '","status":"' WS-NEW-STATUS '"}'
+                  DELIMITED BY SIZE INTO WS-AUD-PAYLOAD-JSON
+           MOVE SPACES TO WS-AUD-EVENT-KEY
+           CALL "AUD-WRITE" USING WS-AUD-ROW WS-AUD-RC
+               ON EXCEPTION CONTINUE
+           END-CALL.
+
+       EMIT-SUMMARY-AUDIT.
+           MOVE "15-autodebit"   TO WS-AUD-SUBSYSTEM
+           MOVE "AD_DAILY_SUMM"  TO WS-AUD-ACTION
+           MOVE "SYSTEM"         TO WS-AUD-ACTOR
+           MOVE "BATCH"          TO WS-AUD-TARGET-TYPE
+           MOVE AD-RUN-BATCH-ID  TO WS-AUD-TARGET-ID
+           MOVE "I"              TO WS-AUD-SEVERITY
+           MOVE AD-RUN-BUSINESS-DATE TO WS-AUD-BUSINESS-DATE
+           MOVE SPACES TO WS-AUD-PAYLOAD-JSON
+           MOVE WS-CTR-POSTED TO WS-AMT-DISP
+           STRING '{"batch":"' AD-RUN-BATCH-ID
+                  '","posted":"' FUNCTION TRIM(WS-AMT-DISP) '"}'
+                  DELIMITED BY SIZE INTO WS-AUD-PAYLOAD-JSON
+           MOVE SPACES TO WS-AUD-EVENT-KEY
+           CALL "AUD-WRITE" USING WS-AUD-ROW WS-AUD-RC
+               ON EXCEPTION CONTINUE
+           END-CALL.
+
+       POPULATE-OUTPUT.
+           MOVE WS-CTR-DUE        TO AD-OUT-INSTRUCTIONS-DUE
+           MOVE WS-CTR-POSTED     TO AD-OUT-INSTRUCTIONS-POSTED
+           MOVE WS-CTR-FAILED-NF  TO AD-OUT-FAILED-NF
+           MOVE WS-CTR-FAILED-CL  TO AD-OUT-FAILED-CL
+           MOVE WS-CTR-FAILED-SU  TO AD-OUT-FAILED-SU
+           MOVE WS-CTR-ALREADY    TO AD-OUT-SKIPPED-ALREADY
+           MOVE WS-CTR-HELPER     TO AD-OUT-SKIPPED-HELPER
+           MOVE WS-CTR-AUTO-SP    TO AD-OUT-AUTO-SUSPENDED
+           MOVE WS-CTR-AUTO-TM    TO AD-OUT-AUTO-TERMINATED
+           MOVE WS-CTR-TOTAL-JPY  TO AD-OUT-TOTAL-DEBITED-JPY.
+
+       CLEANUP-AND-EXIT.
+           IF WS-CONNECTED
+               EXEC SQL ROLLBACK END-EXEC
+               EXEC SQL DISCONNECT ALL END-EXEC
+               MOVE "N" TO WS-CONN-FLAG
+           END-IF.
+
+           COPY "double-entry-helper-procs.cpy".
+
+           COPY "ser-retry-procs.cpy".
+
+           COPY "aud-drain-procs.cpy".
+
+       END PROGRAM AD-RUN-DAILY.

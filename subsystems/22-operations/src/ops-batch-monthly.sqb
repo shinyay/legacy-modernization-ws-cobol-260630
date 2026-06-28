@@ -1,0 +1,307 @@
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. OPS-BATCH-MONTHLY.
+       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+
+           COPY "aud-write-api.cpy".
+
+       01  WS-CONN-FLAG              PIC X(1) VALUE "N".
+           88  WS-CONNECTED                   VALUE "Y".
+
+       01  WS-DATE-NUM               PIC 9(8).
+       01  WS-DATE-Y                 PIC 9(4).
+       01  WS-DATE-M                 PIC 9(2).
+       01  WS-DATE-D                 PIC 9(2).
+       01  WS-DATE-STR               PIC X(10).
+
+       01  WS-CMD                    PIC X(500).
+       01  WS-LOCK-FILE              PIC X(120) VALUE
+           "/tmp/pb-locks/batch-running.lock".
+       01  WS-FLOCK-ACQUIRED         PIC X(1) VALUE "N".
+
+       01  WS-STEP-RC                PIC S9(4) COMP-3 VALUE 0.
+       01  WS-CURRENT-STEP           PIC X(20).
+       01  WS-DRY-RUN-FLAG           PIC X(1) VALUE "Y".
+
+       01  WS-OPR-INPUT.
+           05  WS-OPR-OPERATOR-USER     PIC X(30) VALUE "ops".
+           05  WS-OPR-RETENTION-DAYS    PIC 9(5) VALUE 30.
+           05  WS-OPR-DRY-RUN           PIC X(1) VALUE "N".
+           05  WS-OPR-ENABLE-DETACH     PIC X(1) VALUE "N".
+
+       01  WS-OPR-OUTPUT.
+           05  WS-OPR-STATUS            PIC X(2) VALUE "00".
+           05  WS-OPR-OUT-CREATED-COUNT PIC 9(3) VALUE 0.
+           05  WS-OPR-OUT-DETACHED-COUNT PIC 9(3) VALUE 0.
+           05  WS-OPR-OUT-NEXT-PART     PIC X(20).
+
+       EXEC SQL BEGIN DECLARE SECTION END-EXEC.
+
+       01  HV-DB-NAME                PIC X(80).
+       01  HV-DB-USER                PIC X(32).
+       01  HV-DB-PASS                PIC X(32).
+       01  HV-BATCH-ID               PIC X(14).
+       01  HV-BUSINESS-DATE          PIC X(10).
+       01  HV-STATUS                 PIC X(2).
+       01  HV-STEP                   PIC X(20).
+
+       EXEC SQL END DECLARE SECTION END-EXEC.
+
+       EXEC SQL INCLUDE sqlca END-EXEC.
+
+       LINKAGE SECTION.
+           COPY "ops-api.cpy".
+
+       PROCEDURE DIVISION USING OPB-INPUT OPB-OUTPUT.
+       MAIN-LOGIC.
+           PERFORM INIT-OUTPUT
+           PERFORM VALIDATE-INPUT
+           IF NOT OPB-OK GOBACK END-IF
+           PERFORM ACQUIRE-FLOCK
+           IF WS-FLOCK-ACQUIRED NOT = "Y"
+               SET OPB-FLOCK-CONFLICT TO TRUE
+               GOBACK
+           END-IF
+           PERFORM DB-CONNECT
+           IF NOT WS-CONNECTED
+               SET OPB-FATAL TO TRUE
+               PERFORM RELEASE-FLOCK
+               GOBACK
+           END-IF
+           PERFORM BUILD-HV-DATE
+           PERFORM INSERT-BATCH-RUN
+           PERFORM EMIT-BATCH-START-AUDIT
+           PERFORM EXEC-STEP-14-IPST
+           IF WS-STEP-RC = 0
+               PERFORM EXEC-STEP-21-ROLLOVER
+           END-IF
+           MOVE "N" TO WS-CONN-FLAG
+           PERFORM DB-CONNECT
+           IF OPB-OK
+               PERFORM UPDATE-BATCH-RUN-OK
+               PERFORM EMIT-BATCH-COMPLETE-AUDIT
+           ELSE
+               PERFORM UPDATE-BATCH-RUN-FA
+               PERFORM EMIT-BATCH-FAIL-AUDIT
+           END-IF
+           PERFORM CLEANUP
+           PERFORM RELEASE-FLOCK
+           GOBACK.
+
+       INIT-OUTPUT.
+           SET OPB-OK TO TRUE
+           MOVE SPACES TO OPB-OUT-LAST-STEP WS-CURRENT-STEP
+           MOVE 0 TO OPB-OUT-STEPS-RUN
+                     OPB-OUT-FINALIZED-COUNT
+                     OPB-OUT-DURATION-SEC
+           MOVE "N" TO WS-CONN-FLAG WS-FLOCK-ACQUIRED
+           IF OPB-DRY-RUN-NO
+               MOVE "N" TO WS-DRY-RUN-FLAG
+           ELSE
+               MOVE "Y" TO WS-DRY-RUN-FLAG
+           END-IF.
+
+       VALIDATE-INPUT.
+           IF OPB-BATCH-ID = SPACES OR OPB-BUSINESS-DATE = 0
+               SET OPB-INVALID-INPUT TO TRUE
+           END-IF.
+
+       ACQUIRE-FLOCK.
+           MOVE SPACES TO WS-CMD
+           STRING "mkdir -p /tmp/pb-locks && "
+                  "( flock -n 9 || exit 2 ; "
+                  "touch " FUNCTION TRIM(WS-LOCK-FILE)
+                  ".acquired ) 9>"
+                  FUNCTION TRIM(WS-LOCK-FILE)
+                  DELIMITED BY SIZE INTO WS-CMD
+           CALL "SYSTEM" USING WS-CMD
+           IF RETURN-CODE = 0
+               MOVE "Y" TO WS-FLOCK-ACQUIRED
+           END-IF.
+
+       RELEASE-FLOCK.
+           IF WS-FLOCK-ACQUIRED = "Y"
+               MOVE SPACES TO WS-CMD
+               STRING "rm -f " FUNCTION TRIM(WS-LOCK-FILE)
+                      ".acquired"
+                      DELIMITED BY SIZE INTO WS-CMD
+               CALL "SYSTEM" USING WS-CMD
+               MOVE "N" TO WS-FLOCK-ACQUIRED
+           END-IF.
+
+       DB-CONNECT.
+           MOVE "banking" TO HV-DB-NAME
+           MOVE "cobol"   TO HV-DB-USER
+           MOVE "cobol"   TO HV-DB-PASS
+           EXEC SQL
+               CONNECT :HV-DB-USER IDENTIFIED BY :HV-DB-PASS
+                   USING :HV-DB-NAME
+           END-EXEC
+           IF SQLCODE = 0
+               SET WS-CONNECTED TO TRUE
+           END-IF.
+
+       BUILD-HV-DATE.
+           MOVE OPB-BUSINESS-DATE TO WS-DATE-NUM
+           DIVIDE WS-DATE-NUM BY 10000 GIVING WS-DATE-Y
+           COMPUTE WS-DATE-M = FUNCTION MOD(WS-DATE-NUM / 100, 100)
+           COMPUTE WS-DATE-D = FUNCTION MOD(WS-DATE-NUM, 100)
+           MOVE "0000-00-00" TO WS-DATE-STR
+           STRING WS-DATE-Y "-" WS-DATE-M "-" WS-DATE-D
+                  DELIMITED BY SIZE INTO WS-DATE-STR
+           MOVE WS-DATE-STR     TO HV-BUSINESS-DATE
+           MOVE OPB-BATCH-ID    TO HV-BATCH-ID.
+
+       INSERT-BATCH-RUN.
+           MOVE "RN" TO HV-STATUS
+           MOVE "BEGIN" TO HV-STEP
+           EXEC SQL
+               INSERT INTO batch_run
+                   (batch_id, business_date, started_ts, status,
+                    current_step, errors_count)
+               VALUES
+                   (:HV-BATCH-ID, CAST(:HV-BUSINESS-DATE AS DATE),
+                    NOW(), :HV-STATUS, :HV-STEP, 0)
+               ON CONFLICT (batch_id) DO UPDATE
+                   SET started_ts = NOW(),
+                       status = 'RN',
+                       current_step = 'BEGIN',
+                       completed_ts = NULL,
+                       errors_count = 0
+           END-EXEC
+           IF SQLCODE = 0
+               EXEC SQL COMMIT END-EXEC
+           ELSE
+               EXEC SQL ROLLBACK END-EXEC
+           END-IF.
+
+       UPDATE-BATCH-RUN-OK.
+           MOVE "OK" TO HV-STATUS
+           MOVE "DONE" TO HV-STEP
+           EXEC SQL
+               UPDATE batch_run
+                  SET status = :HV-STATUS,
+                      current_step = :HV-STEP,
+                      completed_ts = NOW()
+                WHERE batch_id = :HV-BATCH-ID
+           END-EXEC
+           EXEC SQL COMMIT END-EXEC.
+
+       UPDATE-BATCH-RUN-FA.
+           MOVE "FL" TO HV-STATUS
+           MOVE OPB-OUT-LAST-STEP TO HV-STEP
+           EXEC SQL
+               UPDATE batch_run
+                  SET status = :HV-STATUS,
+                      last_failed_step = :HV-STEP,
+                      completed_ts = NOW(),
+                      errors_count = errors_count + 1
+                WHERE batch_id = :HV-BATCH-ID
+           END-EXEC
+           EXEC SQL COMMIT END-EXEC.
+
+       EXEC-STEP-14-IPST.
+           MOVE "14-IPST" TO WS-CURRENT-STEP OPB-OUT-LAST-STEP
+           ADD 1 TO OPB-OUT-STEPS-RUN
+           MOVE SPACES TO WS-CMD
+           STRING "bash /workspace/subsystems/22-operations/src/"
+                  "ops-step-14-ipst.sh " WS-DRY-RUN-FLAG
+                  DELIMITED BY SIZE INTO WS-CMD
+           CALL "SYSTEM" USING WS-CMD
+           MOVE RETURN-CODE TO WS-STEP-RC
+           PERFORM EMIT-STEP-AUDIT
+           IF WS-STEP-RC NOT = 0
+               SET OPB-HALTED TO TRUE
+           END-IF.
+
+       EXEC-STEP-21-ROLLOVER.
+           MOVE "21-ROLLOVER" TO WS-CURRENT-STEP OPB-OUT-LAST-STEP
+           ADD 1 TO OPB-OUT-STEPS-RUN
+           CALL "OPS-PARTITION-ROLLOVER"
+                USING WS-OPR-INPUT WS-OPR-OUTPUT
+                ON EXCEPTION
+                    MOVE 16 TO WS-STEP-RC
+                    SET OPB-HALTED TO TRUE
+                    PERFORM EMIT-STEP-AUDIT
+                    EXIT PARAGRAPH
+           END-CALL
+           IF WS-OPR-STATUS = "00"
+               MOVE 0 TO WS-STEP-RC
+           ELSE
+               MOVE 1 TO WS-STEP-RC
+               SET OPB-HALTED TO TRUE
+           END-IF
+           PERFORM EMIT-STEP-AUDIT.
+
+       EMIT-STEP-AUDIT.
+           MOVE "22-operations"        TO WS-AUD-SUBSYSTEM
+           IF WS-STEP-RC = 0
+               MOVE "OPS_STEP_OK"      TO WS-AUD-ACTION
+               MOVE "I"                TO WS-AUD-SEVERITY
+           ELSE
+               MOVE "OPS_STEP_FAIL"    TO WS-AUD-ACTION
+               MOVE "E"                TO WS-AUD-SEVERITY
+           END-IF
+           MOVE "SYSTEM"               TO WS-AUD-ACTOR
+           MOVE "STEP"                 TO WS-AUD-TARGET-TYPE
+           MOVE WS-CURRENT-STEP        TO WS-AUD-TARGET-ID
+           MOVE OPB-BUSINESS-DATE      TO WS-AUD-BUSINESS-DATE
+           MOVE SPACES                 TO WS-AUD-PAYLOAD-JSON
+           STRING '{"batch":"' OPB-BATCH-ID '"}'
+                  DELIMITED BY SIZE INTO WS-AUD-PAYLOAD-JSON
+           CALL "AUD-WRITE" USING WS-AUD-ROW WS-AUD-RC
+               ON EXCEPTION CONTINUE
+           END-CALL.
+
+       EMIT-BATCH-START-AUDIT.
+           MOVE "22-operations"        TO WS-AUD-SUBSYSTEM
+           MOVE "OPS_MONTHLY_START"    TO WS-AUD-ACTION
+           MOVE "SYSTEM"               TO WS-AUD-ACTOR
+           MOVE "BATCH"                TO WS-AUD-TARGET-TYPE
+           MOVE OPB-BATCH-ID           TO WS-AUD-TARGET-ID
+           MOVE "I"                    TO WS-AUD-SEVERITY
+           MOVE OPB-BUSINESS-DATE      TO WS-AUD-BUSINESS-DATE
+           MOVE SPACES                 TO WS-AUD-PAYLOAD-JSON
+           MOVE '{"mode":"MONTHLY"}'   TO WS-AUD-PAYLOAD-JSON
+           CALL "AUD-WRITE" USING WS-AUD-ROW WS-AUD-RC
+               ON EXCEPTION CONTINUE
+           END-CALL.
+
+       EMIT-BATCH-COMPLETE-AUDIT.
+           MOVE "22-operations"        TO WS-AUD-SUBSYSTEM
+           MOVE "OPS_MONTHLY_OK"       TO WS-AUD-ACTION
+           MOVE "I"                    TO WS-AUD-SEVERITY
+           MOVE "SYSTEM"               TO WS-AUD-ACTOR
+           MOVE "BATCH"                TO WS-AUD-TARGET-TYPE
+           MOVE OPB-BATCH-ID           TO WS-AUD-TARGET-ID
+           MOVE OPB-BUSINESS-DATE      TO WS-AUD-BUSINESS-DATE
+           MOVE SPACES                 TO WS-AUD-PAYLOAD-JSON
+           MOVE '{"phase":"complete"}' TO WS-AUD-PAYLOAD-JSON
+           CALL "AUD-WRITE" USING WS-AUD-ROW WS-AUD-RC
+               ON EXCEPTION CONTINUE
+           END-CALL.
+
+       EMIT-BATCH-FAIL-AUDIT.
+           MOVE "22-operations"        TO WS-AUD-SUBSYSTEM
+           MOVE "OPS_MONTHLY_FAIL"     TO WS-AUD-ACTION
+           MOVE "E"                    TO WS-AUD-SEVERITY
+           MOVE "SYSTEM"               TO WS-AUD-ACTOR
+           MOVE "BATCH"                TO WS-AUD-TARGET-TYPE
+           MOVE OPB-BATCH-ID           TO WS-AUD-TARGET-ID
+           MOVE OPB-BUSINESS-DATE      TO WS-AUD-BUSINESS-DATE
+           MOVE SPACES                 TO WS-AUD-PAYLOAD-JSON
+           STRING '{"failed_at":"' FUNCTION TRIM(OPB-OUT-LAST-STEP)
+                  '"}'
+                  DELIMITED BY SIZE INTO WS-AUD-PAYLOAD-JSON
+           CALL "AUD-WRITE" USING WS-AUD-ROW WS-AUD-RC
+               ON EXCEPTION CONTINUE
+           END-CALL.
+
+       CLEANUP.
+           IF WS-CONNECTED
+               EXEC SQL DISCONNECT ALL END-EXEC
+               MOVE "N" TO WS-CONN-FLAG
+           END-IF.
+
+       END PROGRAM OPS-BATCH-MONTHLY.

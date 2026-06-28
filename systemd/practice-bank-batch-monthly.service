@@ -1,0 +1,21 @@
+[Unit]
+Description=PRACTICE BANK Monthly Batch Run (= ops-batch-monthly)
+After=network.target postgresql.service rabbitmq-server.service
+Wants=postgresql.service
+
+[Service]
+Type=oneshot
+User=batch
+Group=batch
+WorkingDirectory=/opt/practice-bank
+EnvironmentFile=/opt/practice-bank/etc/practice-bank.env
+ExecStart=/opt/practice-bank/subsystems/22-operations/bin/run-batch-daily-wrapper.sh monthly
+StandardOutput=journal
+StandardError=journal
+TimeoutStartSec=2h
+KillMode=mixed
+KillSignal=SIGTERM
+TimeoutStopSec=120
+
+[Install]
+WantedBy=multi-user.target

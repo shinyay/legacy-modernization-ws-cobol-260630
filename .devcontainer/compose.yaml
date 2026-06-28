@@ -1,0 +1,101 @@
+name: cobol-in-practice
+
+services:
+
+  cobol:
+    container_name: cobol-in-practice-devcontainer
+    hostname: devcontainer
+    build:
+      context: .
+      dockerfile: Dockerfile
+    init: true
+    command: sleep infinity
+    volumes:
+      - ..:/workspace:cached
+      - cobol-build-cache:/workspace/.build
+    environment:
+      PGHOST: postgres
+      PGPORT: "5432"
+      PGUSER: cobol
+      PGPASSWORD: cobol
+      PGDATABASE: banking
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_PORT: "5672"
+      RABBITMQ_MGMT_PORT: "15672"
+      RABBITMQ_USER: cobol
+      RABBITMQ_PASS: cobol
+      TZ: Asia/Tokyo
+      LANG: en_US.UTF-8
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    networks:
+      - banking-net
+    mem_limit: 2g
+    memswap_limit: 2g
+    cpu_shares: 1024
+
+  postgres:
+    image: postgres:15-alpine
+    container_name: cobol-in-practice-postgres
+    hostname: postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: cobol
+      POSTGRES_PASSWORD: cobol
+      POSTGRES_DB: banking
+      TZ: Asia/Tokyo
+      PGTZ: Asia/Tokyo
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ../shared/ddl:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U cobol -d banking -h localhost"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+    networks:
+      - banking-net
+    mem_limit: 512m
+    memswap_limit: 512m
+    cpu_shares: 512
+
+  rabbitmq:
+    image: rabbitmq:3-management-alpine
+    container_name: cobol-in-practice-rabbitmq
+    hostname: rabbitmq
+    restart: unless-stopped
+    environment:
+      RABBITMQ_DEFAULT_USER: cobol
+      RABBITMQ_DEFAULT_PASS: cobol
+      RABBITMQ_DEFAULT_VHOST: /
+      TZ: Asia/Tokyo
+    volumes:
+      - rabbitmq-data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 15s
+    networks:
+      - banking-net
+    mem_limit: 512m
+    memswap_limit: 512m
+    cpu_shares: 512
+
+networks:
+  banking-net:
+    driver: bridge
+    name: cobol-in-practice-net
+
+volumes:
+  cobol-build-cache:
+    name: cobol-in-practice-build-cache
+  postgres-data:
+    name: cobol-in-practice-postgres-data
+  rabbitmq-data:
+    name: cobol-in-practice-rabbitmq-data

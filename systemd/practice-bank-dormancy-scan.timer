@@ -1,0 +1,11 @@
+[Unit]
+Description=PRACTICE BANK Weekly Dormancy Scan Trigger (= 9-ALC weekly)
+Documentation=file:///opt/practice-bank/docs/operations/OPERATIONS.md
+
+[Timer]
+OnCalendar=Mon *-*-* 03:00:00 Asia/Tokyo
+Persistent=true
+Unit=practice-bank-dormancy-scan.service
+
+[Install]
+WantedBy=timers.target

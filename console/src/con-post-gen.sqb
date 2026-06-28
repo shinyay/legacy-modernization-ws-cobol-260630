@@ -1,0 +1,279 @@
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. CON-POST-GEN.
+
+       ENVIRONMENT DIVISION.
+       INPUT-OUTPUT SECTION.
+       FILE-CONTROL.
+           SELECT REQ-FILE ASSIGN TO WS-REQ-PATH
+               ORGANIZATION IS LINE SEQUENTIAL
+               FILE STATUS IS WS-REQ-FS.
+           SELECT DEC-FILE ASSIGN TO WS-DEC-PATH
+               ORGANIZATION IS SEQUENTIAL
+               FILE STATUS IS WS-DEC-FS.
+           SELECT META-FILE ASSIGN TO WS-META-PATH
+               ORGANIZATION IS LINE SEQUENTIAL
+               FILE STATUS IS WS-META-FS.
+
+       DATA DIVISION.
+       FILE SECTION.
+       FD  REQ-FILE.
+       01  REQ-REC                   PIC X(200).
+       FD  DEC-FILE.
+       01  DEC-REC                   PIC X(600).
+       FD  META-FILE.
+       01  META-REC                  PIC X(120).
+
+       WORKING-STORAGE SECTION.
+       01  WS-DIR                    PIC X(160) VALUE SPACES.
+       01  WS-REQ-PATH               PIC X(200) VALUE SPACES.
+       01  WS-DEC-PATH               PIC X(200) VALUE SPACES.
+       01  WS-META-PATH              PIC X(200) VALUE SPACES.
+       01  WS-REQ-FS                 PIC X(2)   VALUE "00".
+       01  WS-DEC-FS                 PIC X(2)   VALUE "00".
+       01  WS-META-FS                PIC X(2)   VALUE "00".
+       01  WS-EOF                    PIC X(1)   VALUE "N".
+       01  WS-LINE-NO                PIC 9(4)   VALUE 0.
+
+       01  WS-OPERATOR               PIC X(20)  VALUE SPACES.
+       01  WS-COUNT                  PIC 9(2)   VALUE 0.
+       01  WS-IDX                    PIC 9(2)   VALUE 0.
+       01  WS-BDATE                  PIC X(8)   VALUE "20260615".
+       01  WS-BATCH-ID               PIC X(14)  VALUE SPACES.
+       01  WS-STATUS                 PIC X(8)   VALUE "OK".
+       01  WS-AMOUNT-SUM             PIC 9(20)  VALUE 0.
+       01  WS-ZERO-CHK               PIC X(40)  VALUE ALL "0".
+       01  WS-BRANCH-NUM             PIC 9(3)   VALUE 999.
+       01  WS-PROD-NUM               PIC 9(3)   VALUE 999.
+
+       01  WS-ITEMS.
+           05  WS-ITEM OCCURS 10.
+               10  IT-CAT            PIC X(2).
+               10  IT-PAYER          PIC X(13).
+               10  IT-PAYEE          PIC X(13).
+               10  IT-AMOUNT         PIC 9(15).
+               10  IT-DESC           PIC X(120).
+
+       COPY "ws-txn-decoded-record.cpy".
+
+       EXEC SQL BEGIN DECLARE SECTION END-EXEC.
+       01  HV-DB-NAME                PIC X(80).
+       01  HV-DB-USER                PIC X(32).
+       01  HV-DB-PASS                PIC X(32).
+       01  HV-BDATE                  PIC X(10).
+       01  HV-CNT                    PIC S9(9) COMP-3.
+       01  HV-ACCT                   PIC X(13).
+       01  HV-BRANCH                 PIC X(3).
+       01  HV-PROD                   PIC X(3).
+       EXEC SQL END DECLARE SECTION END-EXEC.
+
+       EXEC SQL INCLUDE SQLCA END-EXEC.
+
+       01  WS-CONN-FLAG              PIC X(1) VALUE "N".
+           88  WS-CONNECTED                  VALUE "Y".
+
+       PROCEDURE DIVISION.
+       MAIN-LOGIC.
+           PERFORM BUILD-PATHS
+           PERFORM READ-ENV
+           PERFORM READ-REQUEST
+           IF WS-REQ-FS NOT = "00" OR WS-COUNT = 0
+               MOVE "ERR" TO WS-STATUS
+               PERFORM WRITE-META
+               MOVE 2 TO RETURN-CODE
+               STOP RUN
+           END-IF
+           PERFORM DB-CONNECT
+           IF NOT WS-CONNECTED
+               MOVE "ERR" TO WS-STATUS
+               PERFORM WRITE-META
+               MOVE 12 TO RETURN-CODE
+               STOP RUN
+           END-IF
+           PERFORM PRECHECK-DATE
+           IF WS-STATUS = "ALREADY"
+               PERFORM WRITE-META
+               PERFORM DB-DISCONNECT
+               MOVE 9 TO RETURN-CODE
+               STOP RUN
+           END-IF
+           PERFORM GENERATE-DECODED
+           PERFORM DB-DISCONNECT
+           MOVE "OK" TO WS-STATUS
+           PERFORM WRITE-META
+           MOVE 0 TO RETURN-CODE
+           STOP RUN.
+
+       BUILD-PATHS.
+           MOVE SPACES TO WS-DIR
+           ACCEPT WS-DIR FROM ENVIRONMENT "CONSOLE_POST_DIR"
+           IF WS-DIR = SPACES
+               MOVE "/tmp/console-demo/post" TO WS-DIR
+           END-IF
+           STRING FUNCTION TRIM(WS-DIR) "/request.txt"
+                  DELIMITED BY SIZE INTO WS-REQ-PATH
+           STRING FUNCTION TRIM(WS-DIR) "/txn-decoded.dat"
+                  DELIMITED BY SIZE INTO WS-DEC-PATH
+           STRING FUNCTION TRIM(WS-DIR) "/post-meta.txt"
+                  DELIMITED BY SIZE INTO WS-META-PATH.
+
+       READ-ENV.
+           MOVE SPACES TO WS-DIR
+           ACCEPT WS-DIR FROM ENVIRONMENT "CONSOLE_POST_BDATE"
+           IF WS-DIR(1:8) IS NUMERIC AND WS-DIR(1:8) NOT = "00000000"
+               MOVE WS-DIR(1:8) TO WS-BDATE
+           END-IF
+           STRING "OPST" WS-BDATE DELIMITED BY SIZE INTO WS-BATCH-ID.
+
+       READ-REQUEST.
+           MOVE "N" TO WS-EOF
+           MOVE 0 TO WS-LINE-NO
+           OPEN INPUT REQ-FILE
+           IF WS-REQ-FS NOT = "00"
+               EXIT PARAGRAPH
+           END-IF
+           PERFORM UNTIL WS-EOF = "Y"
+               READ REQ-FILE
+                   AT END MOVE "Y" TO WS-EOF
+                   NOT AT END PERFORM STORE-REQ-LINE
+               END-READ
+           END-PERFORM
+           CLOSE REQ-FILE.
+
+       STORE-REQ-LINE.
+           ADD 1 TO WS-LINE-NO
+           EVALUATE WS-LINE-NO
+               WHEN 1 MOVE REQ-REC(1:20) TO WS-OPERATOR
+               WHEN 2
+                   IF REQ-REC(1:2) IS NUMERIC
+                       MOVE REQ-REC(1:2) TO WS-COUNT
+                   END-IF
+               WHEN OTHER PERFORM STORE-ITEM
+           END-EVALUATE.
+
+       STORE-ITEM.
+           COMPUTE WS-IDX = WS-LINE-NO - 2
+           IF WS-IDX >= 1 AND WS-IDX <= 10
+               MOVE REQ-REC(1:2)    TO IT-CAT(WS-IDX)
+               MOVE REQ-REC(3:13)   TO IT-PAYER(WS-IDX)
+               MOVE REQ-REC(16:13)  TO IT-PAYEE(WS-IDX)
+               IF REQ-REC(29:15) IS NUMERIC
+                   MOVE REQ-REC(29:15) TO IT-AMOUNT(WS-IDX)
+               ELSE
+                   MOVE 0 TO IT-AMOUNT(WS-IDX)
+               END-IF
+               MOVE REQ-REC(44:120) TO IT-DESC(WS-IDX)
+           END-IF.
+
+       PRECHECK-DATE.
+           MOVE SPACES TO HV-BDATE
+           STRING WS-BDATE(1:4) "-" WS-BDATE(5:2) "-" WS-BDATE(7:2)
+                  DELIMITED BY SIZE INTO HV-BDATE
+           EXEC SQL COMMIT END-EXEC
+           MOVE 0 TO HV-CNT
+           EXEC SQL
+               SELECT COUNT(*) INTO :HV-CNT FROM transactions
+                WHERE business_date = CAST(:HV-BDATE AS DATE)
+           END-EXEC
+           IF SQLCODE = 0 AND HV-CNT > 0
+               MOVE "ALREADY" TO WS-STATUS
+           END-IF.
+
+       GENERATE-DECODED.
+           OPEN OUTPUT DEC-FILE
+           IF WS-DEC-FS NOT = "00"
+               MOVE "ERR" TO WS-STATUS
+               EXIT PARAGRAPH
+           END-IF
+           PERFORM WRITE-HEADER
+           MOVE 0 TO WS-AMOUNT-SUM
+           PERFORM VARYING WS-IDX FROM 1 BY 1 UNTIL WS-IDX > WS-COUNT
+               PERFORM WRITE-DETAIL
+           END-PERFORM
+           PERFORM WRITE-TRAILER
+           CLOSE DEC-FILE.
+
+       WRITE-HEADER.
+           MOVE SPACES TO TXN-DECODED-REC
+           MOVE "H"          TO TDH-REC-TYPE
+           MOVE WS-BATCH-ID  TO TDH-BATCH-ID
+           MOVE WS-BDATE     TO TDH-BUSINESS-DATE
+           MOVE "OPERATOR"   TO TDH-SOURCE-SYSTEM
+           MOVE WS-COUNT     TO TDH-EXPECTED-COUNT
+           MOVE WS-ZERO-CHK  TO TDH-CHECKSUM
+           WRITE DEC-REC FROM TXN-DECODED-REC.
+
+       WRITE-DETAIL.
+           MOVE SPACES TO TXN-DECODED-REC
+           MOVE "D"             TO TDD-REC-TYPE
+           MOVE WS-IDX          TO TDD-SEQ
+           MOVE IT-CAT(WS-IDX)  TO TDD-CATEGORY
+           MOVE IT-AMOUNT(WS-IDX) TO TDD-AMOUNT-JPY
+           MOVE "JPY"           TO TDD-CURRENCY
+           MOVE IT-PAYER(WS-IDX) TO TDD-PAYER-ACCT
+           MOVE IT-PAYEE(WS-IDX) TO TDD-PAYEE-ACCT
+           PERFORM DERIVE-BRANCH-PRODUCT
+           MOVE WS-BRANCH-NUM   TO TDD-BRANCH-CODE
+           MOVE WS-PROD-NUM     TO TDD-PRODUCT-CODE
+           MOVE IT-DESC(WS-IDX) TO TDD-DESCRIPTION
+           MOVE WS-IDX          TO TDD-ORIGINAL-SEQ
+           ADD IT-AMOUNT(WS-IDX) TO WS-AMOUNT-SUM
+           WRITE DEC-REC FROM TXN-DECODED-REC.
+
+       DERIVE-BRANCH-PRODUCT.
+           MOVE 999 TO WS-BRANCH-NUM
+           MOVE 999 TO WS-PROD-NUM
+           MOVE IT-PAYER(WS-IDX) TO HV-ACCT
+           MOVE SPACES TO HV-BRANCH HV-PROD
+           EXEC SQL
+               SELECT branch_code, product_code
+                 INTO :HV-BRANCH, :HV-PROD
+                 FROM accounts
+                WHERE acct_number = :HV-ACCT
+           END-EXEC
+           IF SQLCODE = 0
+               IF HV-BRANCH IS NUMERIC
+                   MOVE HV-BRANCH TO WS-BRANCH-NUM
+               END-IF
+               IF HV-PROD IS NUMERIC
+                   MOVE HV-PROD TO WS-PROD-NUM
+               END-IF
+           END-IF.
+
+       WRITE-TRAILER.
+           MOVE SPACES TO TXN-DECODED-REC
+           MOVE "T"          TO TDT-REC-TYPE
+           MOVE WS-COUNT     TO TDT-RECORD-COUNT
+           MOVE WS-AMOUNT-SUM TO TDT-AMOUNT-SUM
+           MOVE WS-ZERO-CHK  TO TDT-CHECKSUM
+           WRITE DEC-REC FROM TXN-DECODED-REC.
+
+       WRITE-META.
+           MOVE SPACES TO META-REC
+           STRING FUNCTION TRIM(WS-BATCH-ID) "|"
+                  WS-BDATE "|"
+                  WS-COUNT "|"
+                  FUNCTION TRIM(WS-STATUS)
+                  DELIMITED BY SIZE INTO META-REC
+           OPEN OUTPUT META-FILE
+           IF WS-META-FS = "00"
+               WRITE META-REC
+               CLOSE META-FILE
+           END-IF.
+
+       DB-CONNECT.
+           MOVE "banking" TO HV-DB-NAME
+           MOVE "cobol"   TO HV-DB-USER
+           MOVE "cobol"   TO HV-DB-PASS
+           EXEC SQL
+               CONNECT :HV-DB-USER IDENTIFIED BY :HV-DB-PASS
+                   USING :HV-DB-NAME
+           END-EXEC
+           IF SQLCODE = 0
+               SET WS-CONNECTED TO TRUE
+           END-IF.
+
+       DB-DISCONNECT.
+           IF WS-CONNECTED
+               EXEC SQL DISCONNECT ALL END-EXEC
+               MOVE "N" TO WS-CONN-FLAG
+           END-IF.

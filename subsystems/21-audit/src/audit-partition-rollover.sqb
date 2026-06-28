@@ -1,0 +1,230 @@
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. AUDIT-PARTITION-ROLLOVER.
+       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+
+       01  WS-CONN-FLAG              PIC X(1) VALUE "N".
+           88  WS-CONNECTED                   VALUE "Y".
+
+       01  WS-CTR-CREATED            PIC 9(3) VALUE 0.
+       01  WS-CTR-DETACHED           PIC 9(3) VALUE 0.
+
+       01  WS-TODAY-NUM              PIC 9(8).
+       01  WS-DATE-CURRENT.
+           05  WS-DC-YEAR             PIC 9(4).
+           05  WS-DC-MONTH            PIC 9(2).
+           05  WS-DC-DAY              PIC 9(2).
+       01  WS-FUNC-DATE              PIC X(21).
+       01  WS-NEXT-YYYYMM            PIC X(6).
+       01  WS-NEXT-START             PIC X(10).
+       01  WS-NEXT-END               PIC X(10).
+       01  WS-PART-NAME              PIC X(20).
+       01  WS-HORIZON-DATE           PIC X(10).
+       01  WS-HORIZON-YYYYMM         PIC X(6).
+
+       EXEC SQL BEGIN DECLARE SECTION END-EXEC.
+
+       01  HV-DB-NAME                PIC X(80).
+       01  HV-DB-USER                PIC X(32).
+       01  HV-DB-PASS                PIC X(32).
+       01  HV-HORIZON-DATE           PIC X(10).
+       01  HV-NEXT-START             PIC X(10).
+       01  HV-PART-RESULT            PIC X(50).
+       01  HV-DETACH-COUNT           PIC S9(9) COMP-3.
+
+       EXEC SQL END DECLARE SECTION END-EXEC.
+
+       EXEC SQL INCLUDE sqlca END-EXEC.
+
+           COPY "aud-write-api.cpy".
+
+       LINKAGE SECTION.
+           COPY "audit-api.cpy".
+
+       PROCEDURE DIVISION USING APR-INPUT APR-OUTPUT.
+       MAIN-LOGIC.
+           PERFORM INIT-OUTPUT
+           PERFORM DB-CONNECT
+           IF NOT WS-CONNECTED
+               SET APR-FATAL TO TRUE
+               GOBACK
+           END-IF
+           PERFORM COMPUTE-NEXT-MONTH
+           PERFORM CREATE-NEXT-PARTITION
+           PERFORM COMPUTE-HORIZON
+           PERFORM DETACH-EXPIRED-PARTITIONS
+           PERFORM EMIT-AUDIT
+           PERFORM POPULATE-OUTPUT
+           PERFORM CLEANUP-AND-EXIT
+           GOBACK.
+
+       INIT-OUTPUT.
+           SET APR-OK TO TRUE
+           MOVE 0 TO APR-OUT-CREATED-COUNT
+                     APR-OUT-DETACHED-COUNT
+                     WS-CTR-CREATED WS-CTR-DETACHED
+           MOVE SPACES TO APR-OUT-NEXT-PARTITION
+           MOVE "N" TO WS-CONN-FLAG
+           IF APR-RETENTION-DAYS = 0
+               MOVE 30 TO APR-RETENTION-DAYS
+           END-IF.
+
+       DB-CONNECT.
+           MOVE "banking" TO HV-DB-NAME
+           MOVE "cobol"   TO HV-DB-USER
+           MOVE "cobol"   TO HV-DB-PASS
+           EXEC SQL
+               CONNECT :HV-DB-USER IDENTIFIED BY :HV-DB-PASS
+                   USING :HV-DB-NAME
+           END-EXEC
+           IF SQLCODE = 0
+               SET WS-CONNECTED TO TRUE
+           END-IF.
+
+       COMPUTE-NEXT-MONTH.
+           MOVE FUNCTION CURRENT-DATE TO WS-FUNC-DATE
+           MOVE WS-FUNC-DATE(1:4) TO WS-DC-YEAR
+           MOVE WS-FUNC-DATE(5:2) TO WS-DC-MONTH
+           MOVE WS-FUNC-DATE(7:2) TO WS-DC-DAY
+           IF WS-DC-MONTH = 12
+               ADD 1 TO WS-DC-YEAR
+               MOVE 1 TO WS-DC-MONTH
+           ELSE
+               ADD 1 TO WS-DC-MONTH
+           END-IF
+           MOVE SPACES TO WS-NEXT-YYYYMM
+           STRING WS-DC-YEAR WS-DC-MONTH
+                  DELIMITED BY SIZE INTO WS-NEXT-YYYYMM
+           MOVE "0000-00-00" TO WS-NEXT-START
+           STRING WS-DC-YEAR "-" WS-DC-MONTH "-01"
+                  DELIMITED BY SIZE INTO WS-NEXT-START
+           IF WS-DC-MONTH = 12
+               ADD 1 TO WS-DC-YEAR
+               MOVE 1 TO WS-DC-MONTH
+           ELSE
+               ADD 1 TO WS-DC-MONTH
+           END-IF
+           MOVE "0000-00-00" TO WS-NEXT-END
+           STRING WS-DC-YEAR "-" WS-DC-MONTH "-01"
+                  DELIMITED BY SIZE INTO WS-NEXT-END
+           MOVE SPACES TO WS-PART-NAME
+           STRING "audit_log_" WS-NEXT-YYYYMM
+                  DELIMITED BY SIZE INTO WS-PART-NAME.
+
+       CREATE-NEXT-PARTITION.
+           IF APR-DRY-RUN-YES
+               EXIT PARAGRAPH
+           END-IF
+           MOVE WS-NEXT-START TO HV-NEXT-START
+           EXEC SQL
+               SELECT create_audit_partition(:HV-NEXT-START)
+                 INTO :HV-PART-RESULT
+           END-EXEC
+           IF SQLCODE NOT = 0
+               PERFORM ABORT-FATAL
+           END-IF
+           EXEC SQL COMMIT END-EXEC
+           IF SQLCODE NOT = 0 AND SQLCODE NOT = 100
+               PERFORM ABORT-FATAL
+           END-IF
+           ADD 1 TO WS-CTR-CREATED.
+
+       COMPUTE-HORIZON.
+           MOVE FUNCTION CURRENT-DATE TO WS-FUNC-DATE
+           MOVE WS-FUNC-DATE(1:4) TO WS-DC-YEAR
+           MOVE WS-FUNC-DATE(5:2) TO WS-DC-MONTH
+           IF APR-RETENTION-DAYS >= 30
+               COMPUTE WS-DC-MONTH = WS-DC-MONTH -
+                   FUNCTION INTEGER(APR-RETENTION-DAYS / 30)
+               PERFORM UNTIL WS-DC-MONTH >= 1
+                   SUBTRACT 1 FROM WS-DC-YEAR
+                   ADD 12 TO WS-DC-MONTH
+               END-PERFORM
+           END-IF
+           MOVE SPACES TO WS-HORIZON-YYYYMM
+           STRING WS-DC-YEAR WS-DC-MONTH
+                  DELIMITED BY SIZE INTO WS-HORIZON-YYYYMM
+           MOVE "0000-00-00" TO WS-HORIZON-DATE
+           STRING WS-DC-YEAR "-" WS-DC-MONTH "-01"
+                  DELIMITED BY SIZE INTO WS-HORIZON-DATE
+           MOVE WS-HORIZON-DATE TO HV-HORIZON-DATE.
+
+       DETACH-EXPIRED-PARTITIONS.
+           IF APR-DRY-RUN-YES OR (NOT APR-DETACH-YES)
+               EXIT PARAGRAPH
+           END-IF
+           MOVE WS-HORIZON-DATE TO HV-HORIZON-DATE
+           EXEC SQL
+               SELECT detach_expired_audit_partitions(:HV-HORIZON-DATE)
+                 INTO :HV-DETACH-COUNT
+           END-EXEC
+           IF SQLCODE NOT = 0
+               PERFORM ABORT-FATAL
+           END-IF
+           EXEC SQL COMMIT END-EXEC
+           IF SQLCODE NOT = 0 AND SQLCODE NOT = 100
+               PERFORM ABORT-FATAL
+           END-IF
+           ADD HV-DETACH-COUNT TO WS-CTR-DETACHED
+           PERFORM EMIT-DETACH-AUDIT.
+
+        ABORT-FATAL.
+           EXEC SQL ROLLBACK END-EXEC
+           SET APR-FATAL TO TRUE
+           PERFORM CLEANUP-AND-EXIT
+           GOBACK.
+
+       EMIT-DETACH-AUDIT.
+           MOVE "21-audit"             TO WS-AUD-SUBSYSTEM
+           MOVE "AUDIT_PART_DETACHED"  TO WS-AUD-ACTION
+           IF APR-OPERATOR-USER = SPACES
+               MOVE "SYSTEM"           TO WS-AUD-ACTOR
+           ELSE
+               MOVE APR-OPERATOR-USER  TO WS-AUD-ACTOR
+           END-IF
+           MOVE "PARTITION"            TO WS-AUD-TARGET-TYPE
+           MOVE WS-HORIZON-YYYYMM      TO WS-AUD-TARGET-ID
+           MOVE "I"                    TO WS-AUD-SEVERITY
+           MOVE FUNCTION NUMVAL(WS-FUNC-DATE(1:8))
+                                              TO WS-AUD-BUSINESS-DATE
+           MOVE SPACES                 TO WS-AUD-PAYLOAD-JSON
+           STRING '{"horizon":"' WS-HORIZON-DATE '"}'
+                  DELIMITED BY SIZE INTO WS-AUD-PAYLOAD-JSON
+           CALL "AUD-WRITE" USING WS-AUD-ROW WS-AUD-RC
+               ON EXCEPTION CONTINUE
+           END-CALL.
+
+       EMIT-AUDIT.
+           MOVE "21-audit"             TO WS-AUD-SUBSYSTEM
+           MOVE "AUDIT_PARTITION_ROLL" TO WS-AUD-ACTION
+           IF APR-OPERATOR-USER = SPACES
+               MOVE "SYSTEM"           TO WS-AUD-ACTOR
+           ELSE
+               MOVE APR-OPERATOR-USER  TO WS-AUD-ACTOR
+           END-IF
+           MOVE "PARTITION"            TO WS-AUD-TARGET-TYPE
+           MOVE WS-NEXT-YYYYMM         TO WS-AUD-TARGET-ID
+           MOVE "I"                    TO WS-AUD-SEVERITY
+           MOVE FUNCTION NUMVAL(WS-FUNC-DATE(1:8))
+                                              TO WS-AUD-BUSINESS-DATE
+           MOVE SPACES                 TO WS-AUD-PAYLOAD-JSON
+           STRING '{"created":"' WS-PART-NAME
+                  '","horizon":"' WS-HORIZON-DATE '"}'
+                  DELIMITED BY SIZE INTO WS-AUD-PAYLOAD-JSON
+           CALL "AUD-WRITE" USING WS-AUD-ROW WS-AUD-RC
+               ON EXCEPTION CONTINUE
+           END-CALL.
+
+       POPULATE-OUTPUT.
+           MOVE WS-CTR-CREATED   TO APR-OUT-CREATED-COUNT
+           MOVE WS-CTR-DETACHED  TO APR-OUT-DETACHED-COUNT
+           MOVE WS-PART-NAME     TO APR-OUT-NEXT-PARTITION.
+
+       CLEANUP-AND-EXIT.
+           IF WS-CONNECTED
+               EXEC SQL DISCONNECT ALL END-EXEC
+               MOVE "N" TO WS-CONN-FLAG
+           END-IF.
+
+       END PROGRAM AUDIT-PARTITION-ROLLOVER.

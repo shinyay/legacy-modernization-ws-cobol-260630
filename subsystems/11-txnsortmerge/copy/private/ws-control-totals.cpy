@@ -1,0 +1,20 @@
+       01  WS-SORT-COUNTERS.
+           05  WS-SORT-RECORDS-IN       PIC 9(7) VALUE 0.
+           05  WS-SORT-RECORDS-OUT      PIC 9(7) VALUE 0.
+           05  WS-SORT-AMOUNT-SUM       PIC 9(20) VALUE 0.
+           05  WS-SORT-HEADER-COUNT     PIC 9(10) VALUE 0.
+           05  WS-SORT-TRAILER-COUNT    PIC 9(10) VALUE 0.
+           05  WS-SORT-TRAILER-SUM      PIC 9(20) VALUE 0.
+           05  WS-SORT-CTRL-MATCH       PIC X(1) VALUE "N".
+               88  WS-SORT-CTRL-OK              VALUE "Y".
+
+       01  WS-MERGE-COUNTERS.
+           05  WS-MERGE-SORTED-IN       PIC 9(7) VALUE 0.
+           05  WS-MERGE-RECON-IN        PIC 9(7) VALUE 0.
+           05  WS-MERGE-D-COUNT         PIC 9(7) VALUE 0.
+           05  WS-MERGE-AMOUNT-SUM      PIC 9(20) VALUE 0.
+           05  WS-DUPLICATE-RECORD-COUNT PIC 9(5) VALUE 0.
+           05  WS-DUPLICATE-PAIR-COUNT  PIC 9(5) VALUE 0.
+           05  WS-SORT-VIOLATION-COUNT  PIC 9(5) VALUE 0.
+           05  WS-MERGE-CTRL-MATCH      PIC X(1) VALUE "N".
+               88  WS-MERGE-CONSERVATION-OK     VALUE "Y".

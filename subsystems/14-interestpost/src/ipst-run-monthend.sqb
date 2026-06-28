@@ -1,0 +1,551 @@
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. IPST-RUN-MONTHEND.
+       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+
+       01  WS-CONN-FLAG              PIC X(1) VALUE "N".
+           88  WS-CONNECTED                  VALUE "Y".
+
+       01  WS-CASH-ACCT              PIC X(13) VALUE "0010010000001".
+       01  WS-CLEAR-ACCT             PIC X(13) VALUE "0010010000002".
+       01  WS-INT-EXP-ACCT           PIC X(13) VALUE "0010010000003".
+
+       01  WS-POSTING-FIRST          PIC X(10).
+       01  WS-POSTING-LAST           PIC X(10).
+       01  WS-YYYY                   PIC 9(4).
+       01  WS-MM                     PIC 9(2).
+       01  WS-DD                     PIC 9(2).
+       01  WS-LAST-DAY               PIC 9(2).
+       01  WS-IS-LEAP                PIC X(1) VALUE "N".
+
+       01  WS-SNAPSHOT.
+           05  WS-SNAP-COUNT         PIC 9(4) VALUE 0.
+           05  WS-SNAP-ENTRY OCCURS 1000 TIMES.
+               10 WS-SNAP-ACCT       PIC X(13).
+               10 WS-SNAP-ACCRUED    PIC S9(15) COMP-3.
+               10 WS-SNAP-PRODUCT    PIC X(3).
+
+       01  WS-IDX                    PIC 9(4).
+
+       01  WS-CUR-ACCT               PIC X(13).
+       01  WS-CUR-ACCRUED            PIC S9(15) COMP-3.
+       01  WS-CUR-PRODUCT            PIC X(3).
+       01  WS-NEW-TXN-ID             PIC X(18).
+       01  WS-NEXT-SERIAL            PIC 9(10) VALUE 0.
+
+       01  WS-CTR.
+           05  WS-CTR-AGG            PIC 9(7) VALUE 0.
+           05  WS-CTR-POSTED         PIC 9(7) VALUE 0.
+           05  WS-CTR-CLOSED         PIC 9(7) VALUE 0.
+           05  WS-CTR-PROD           PIC 9(7) VALUE 0.
+           05  WS-CTR-ALREADY        PIC 9(7) VALUE 0.
+           05  WS-CTR-HELPER         PIC 9(7) VALUE 0.
+           05  WS-CTR-AC-CONSUMED    PIC 9(8) VALUE 0.
+           05  WS-CTR-TOTAL-JPY      PIC S9(15) COMP-3 VALUE 0.
+
+       01  WS-AMT-DISP               PIC ZZZZZZZZZZZZZZ9.
+
+           COPY "double-entry-helper.cpy".
+
+           COPY "aud-write-api.cpy".
+
+           COPY "shared-log-api.cpy".
+
+           EXEC SQL BEGIN DECLARE SECTION END-EXEC.
+
+       01  HV-DB-NAME                PIC X(80).
+       01  HV-DB-USER                PIC X(32).
+       01  HV-DB-PASS                PIC X(32).
+
+       01  HV-POSTING-FIRST          PIC X(10).
+       01  HV-POSTING-LAST           PIC X(10).
+       01  HV-ACCT                   PIC X(13).
+       01  HV-ACCRUED                PIC S9(15) COMP-3.
+       01  HV-PRODUCT                PIC X(3).
+       01  HV-LOCK-READBACK          PIC X(13).
+       01  HV-DR-ACCT                PIC X(13).
+       01  HV-CR-ACCT                PIC X(13).
+       01  HV-TXN-ID                 PIC X(18).
+       01  HV-POSTING-ID             PIC X(20).
+       01  HV-AMOUNT-JPY             PIC S9(15) COMP-3.
+       01  HV-LINE-NO                PIC S9(4)  COMP-3.
+       01  HV-DEBIT-JPY              PIC S9(15) COMP-3.
+       01  HV-CREDIT-JPY             PIC S9(15) COMP-3.
+       01  HV-POSTING-ROLE           PIC X(2).
+       01  HV-EXISTS-CHECK           PIC S9(4)  COMP-3.
+       01  HV-BATCH-ID               PIC X(14).
+       01  HV-LOCK-1                 PIC X(13).
+       01  HV-LOCK-2                 PIC X(13).
+       01  HV-SOURCE-SEQ             PIC S9(9)  COMP-3.
+       01  HV-MAX-SERIAL             PIC S9(10) COMP-3.
+
+           EXEC SQL END DECLARE SECTION END-EXEC.
+
+           EXEC SQL INCLUDE sqlca END-EXEC.
+
+       01  WS-SQLERRD-3              PIC S9(9) COMP.
+
+       LINKAGE SECTION.
+           COPY "ipst-api.cpy".
+
+       PROCEDURE DIVISION USING IPST-RUN-INPUT IPST-RUN-OUTPUT.
+       MAIN-LOGIC.
+           PERFORM INIT-OUTPUT
+           PERFORM VALIDATE-INPUT
+           IF NOT IPST-RUN-OK GOBACK END-IF
+           PERFORM DB-CONNECT
+           IF NOT WS-CONNECTED
+               SET IPST-RUN-IO-FAIL TO TRUE
+               GOBACK
+           END-IF
+           PERFORM VERIFY-SYS-ACCOUNTS
+           IF NOT IPST-RUN-OK
+               PERFORM CLEANUP-AND-EXIT
+               GOBACK
+           END-IF
+           PERFORM RESOLVE-POSTING-WINDOW
+           PERFORM ALLOCATE-NEXT-SERIAL
+           EXEC SQL
+               DECLARE IPSTCUR CURSOR FOR
+                   SELECT account_number,
+                          SUM(accrued_jpy),
+                          MAX(product_code)
+                   FROM interest_accruals
+                   WHERE business_date BETWEEN
+                         CAST(:HV-POSTING-FIRST AS DATE) AND
+                         CAST(:HV-POSTING-LAST  AS DATE)
+                     AND status = 'AC'
+                   GROUP BY account_number
+                   HAVING SUM(accrued_jpy) > 0
+                   ORDER BY account_number
+           END-EXEC
+           EXEC SQL OPEN IPSTCUR END-EXEC
+           IF SQLCODE NOT = 0
+               SET IPST-RUN-IO-FAIL TO TRUE
+               PERFORM CLEANUP-AND-EXIT
+               GOBACK
+           END-IF
+           PERFORM FETCH-INTO-SNAPSHOT
+           EXEC SQL CLOSE IPSTCUR END-EXEC
+           EXEC SQL COMMIT END-EXEC
+           PERFORM PROCESS-SNAPSHOT
+           PERFORM EMIT-SUMMARY-AUDIT
+           PERFORM POPULATE-OUTPUT
+           PERFORM CLEANUP-AND-EXIT
+           GOBACK.
+
+       INIT-OUTPUT.
+           SET IPST-RUN-OK TO TRUE
+           MOVE 0 TO IPST-OUT-ACCOUNTS-AGGREGATED
+                     IPST-OUT-ACCOUNTS-POSTED
+                     IPST-OUT-SKIPPED-CLOSED
+                     IPST-OUT-SKIPPED-PRODUCT
+                     IPST-OUT-SKIPPED-ALREADY
+                     IPST-OUT-SKIPPED-HELPER
+                     IPST-OUT-AC-ROWS-CONSUMED
+                     IPST-OUT-TOTAL-POSTED-JPY
+                     IPST-OUT-DURATION-SEC
+           MOVE 0 TO WS-CTR-AGG WS-CTR-POSTED WS-CTR-CLOSED
+                     WS-CTR-PROD WS-CTR-ALREADY WS-CTR-HELPER
+                     WS-CTR-AC-CONSUMED WS-CTR-TOTAL-JPY
+                     WS-SNAP-COUNT
+                     WS-NEXT-SERIAL
+           MOVE "N" TO WS-CONN-FLAG.
+
+       VALIDATE-INPUT.
+           IF IPST-RUN-BATCH-ID = SPACES OR
+              IPST-RUN-BUSINESS-DATE = 0
+               SET IPST-RUN-INVALID-INPUT TO TRUE
+           END-IF.
+
+       DB-CONNECT.
+           MOVE "banking" TO HV-DB-NAME
+           MOVE "cobol"   TO HV-DB-USER
+           MOVE "cobol"   TO HV-DB-PASS
+           EXEC SQL
+               CONNECT :HV-DB-USER IDENTIFIED BY :HV-DB-PASS
+                   USING :HV-DB-NAME
+           END-EXEC
+           IF SQLCODE = 0
+               SET WS-CONNECTED TO TRUE
+           END-IF.
+
+       VERIFY-SYS-ACCOUNTS.
+           MOVE WS-INT-EXP-ACCT TO HV-ACCT
+           EXEC SQL
+               SELECT 1 INTO :HV-EXISTS-CHECK
+                 FROM balances
+                WHERE account_number = :HV-ACCT
+           END-EXEC
+           IF SQLCODE NOT = 0
+               SET IPST-RUN-INVALID-INPUT TO TRUE
+           END-IF.
+
+       RESOLVE-POSTING-WINDOW.
+           DIVIDE IPST-RUN-BUSINESS-DATE BY 10000 GIVING WS-YYYY
+           COMPUTE WS-MM =
+               FUNCTION MOD(IPST-RUN-BUSINESS-DATE / 100, 100)
+           COMPUTE WS-DD = FUNCTION MOD(IPST-RUN-BUSINESS-DATE, 100)
+           MOVE "0000-00-01" TO WS-POSTING-FIRST
+           STRING WS-YYYY "-" WS-MM "-01"
+                  DELIMITED BY SIZE INTO WS-POSTING-FIRST
+           EVALUATE WS-MM
+               WHEN 1 MOVE 31 TO WS-LAST-DAY
+               WHEN 3 MOVE 31 TO WS-LAST-DAY
+               WHEN 5 MOVE 31 TO WS-LAST-DAY
+               WHEN 7 MOVE 31 TO WS-LAST-DAY
+               WHEN 8 MOVE 31 TO WS-LAST-DAY
+               WHEN 10 MOVE 31 TO WS-LAST-DAY
+               WHEN 12 MOVE 31 TO WS-LAST-DAY
+               WHEN 4 MOVE 30 TO WS-LAST-DAY
+               WHEN 6 MOVE 30 TO WS-LAST-DAY
+               WHEN 9 MOVE 30 TO WS-LAST-DAY
+               WHEN 11 MOVE 30 TO WS-LAST-DAY
+               WHEN 2
+                   PERFORM CHECK-LEAP
+                   IF WS-IS-LEAP = "Y"
+                       MOVE 29 TO WS-LAST-DAY
+                   ELSE
+                       MOVE 28 TO WS-LAST-DAY
+                   END-IF
+           END-EVALUATE
+           MOVE "0000-00-00" TO WS-POSTING-LAST
+           STRING WS-YYYY "-" WS-MM "-" WS-LAST-DAY
+                  DELIMITED BY SIZE INTO WS-POSTING-LAST
+           MOVE WS-POSTING-FIRST TO HV-POSTING-FIRST
+           MOVE WS-POSTING-LAST  TO HV-POSTING-LAST.
+
+       CHECK-LEAP.
+           IF FUNCTION MOD(WS-YYYY, 4) = 0 AND
+              (FUNCTION MOD(WS-YYYY, 100) NOT = 0 OR
+               FUNCTION MOD(WS-YYYY, 400) = 0)
+               MOVE "Y" TO WS-IS-LEAP
+           ELSE
+               MOVE "N" TO WS-IS-LEAP
+           END-IF.
+
+       ALLOCATE-NEXT-SERIAL.
+           MOVE IPST-RUN-BATCH-ID TO HV-BATCH-ID
+           EXEC SQL
+               SELECT COALESCE(MAX(CAST(SUBSTRING(txn_id, 9, 10)
+                                       AS BIGINT)), 0)
+                 INTO :HV-MAX-SERIAL
+                 FROM transactions
+                WHERE business_date =
+                      CAST(:HV-POSTING-LAST AS DATE)
+                  AND source_system IN ('AUTODEBIT', 'INTEREST', 'FEE')
+           END-EXEC
+           MOVE HV-MAX-SERIAL TO WS-NEXT-SERIAL.
+
+       FETCH-INTO-SNAPSHOT.
+           PERFORM UNTIL WS-SNAP-COUNT >= 1000
+               EXEC SQL
+                   FETCH IPSTCUR INTO :HV-ACCT, :HV-ACCRUED, :HV-PRODUCT
+               END-EXEC
+               IF SQLCODE = 100
+                   EXIT PERFORM
+               END-IF
+               IF SQLCODE NOT = 0
+                   SET IPST-RUN-PARTIAL TO TRUE
+                   EXIT PERFORM
+               END-IF
+               ADD 1 TO WS-SNAP-COUNT
+               ADD 1 TO WS-CTR-AGG
+               MOVE HV-ACCT     TO WS-SNAP-ACCT(WS-SNAP-COUNT)
+               MOVE HV-ACCRUED  TO WS-SNAP-ACCRUED(WS-SNAP-COUNT)
+               MOVE HV-PRODUCT  TO WS-SNAP-PRODUCT(WS-SNAP-COUNT)
+           END-PERFORM.
+
+       PROCESS-SNAPSHOT.
+           MOVE 1 TO WS-IDX
+           PERFORM UNTIL WS-IDX > WS-SNAP-COUNT
+               MOVE WS-SNAP-ACCT(WS-IDX)    TO WS-CUR-ACCT
+               MOVE WS-SNAP-ACCRUED(WS-IDX) TO WS-CUR-ACCRUED
+               MOVE WS-SNAP-PRODUCT(WS-IDX) TO WS-CUR-PRODUCT
+               PERFORM PROCESS-ONE-ACCT
+               ADD 1 TO WS-IDX
+           END-PERFORM.
+
+       PROCESS-ONE-ACCT.
+           IF WS-CUR-PRODUCT NOT = "001"
+               ADD 1 TO WS-CTR-PROD
+               EXIT PARAGRAPH
+           END-IF
+           MOVE WS-CUR-ACCT TO HV-ACCT
+           EXEC SQL
+               SELECT 1 INTO :HV-EXISTS-CHECK
+                 FROM balances
+                WHERE account_number = :HV-ACCT
+           END-EXEC
+           IF SQLCODE NOT = 0
+               ADD 1 TO WS-CTR-CLOSED
+               EXIT PARAGRAPH
+           END-IF
+           ADD 1 TO WS-NEXT-SERIAL
+           PERFORM BUILD-NEW-TXN-ID
+           MOVE WS-NEW-TXN-ID TO HV-TXN-ID
+           EXEC SQL
+               SELECT 1 INTO :HV-EXISTS-CHECK
+                 FROM transactions
+                WHERE source_system = 'INTEREST'
+                  AND source_batch_id = :HV-BATCH-ID
+                  AND account_number = :HV-ACCT
+                  AND business_date =
+                      CAST(:HV-POSTING-LAST AS DATE)
+           END-EXEC
+           IF SQLCODE = 0
+               ADD 1 TO WS-CTR-ALREADY
+               EXIT PARAGRAPH
+           END-IF
+           MOVE 50            TO DEH-CAT
+           MOVE WS-CUR-ACCRUED TO DEH-AMOUNT-JPY
+           MOVE WS-INT-EXP-ACCT TO DEH-DR-ACCT
+           MOVE WS-CUR-ACCT   TO DEH-CR-ACCT
+           PERFORM DEH-VALIDATE
+           IF DEH-RC NOT = 0
+               ADD 1 TO WS-CTR-HELPER
+               MOVE "14-interestpost" TO WS-LOG-SUBSYSTEM
+               MOVE "ERROR" TO WS-LOG-LEVEL
+               STRING "DEH validation failed acct="
+                      WS-CUR-ACCT " rc=" DEH-RC
+                      DELIMITED BY SIZE INTO WS-LOG-MESSAGE
+               CALL "SHARED-LOG" USING WS-LOG-MSG WS-LOG-RC
+                   ON EXCEPTION CONTINUE
+               END-CALL
+               EXIT PARAGRAPH
+           END-IF
+           PERFORM POST-PAIR-PARA.
+
+       BUILD-NEW-TXN-ID.
+           MOVE SPACES TO WS-NEW-TXN-ID
+           STRING WS-POSTING-LAST(1:4)
+                  WS-POSTING-LAST(6:2)
+                  WS-POSTING-LAST(9:2)
+                  WS-NEXT-SERIAL
+                  DELIMITED BY SIZE INTO WS-NEW-TXN-ID.
+
+       POST-PAIR-PARA.
+           MOVE WS-INT-EXP-ACCT TO HV-DR-ACCT
+           MOVE WS-CUR-ACCT     TO HV-CR-ACCT
+           IF HV-DR-ACCT < HV-CR-ACCT
+               MOVE HV-DR-ACCT TO HV-LOCK-1
+               MOVE HV-CR-ACCT TO HV-LOCK-2
+           ELSE
+               MOVE HV-CR-ACCT TO HV-LOCK-1
+               MOVE HV-DR-ACCT TO HV-LOCK-2
+           END-IF
+           MOVE HV-LOCK-1 TO HV-ACCT
+           EXEC SQL
+               SELECT account_number INTO :HV-LOCK-READBACK
+                 FROM balances
+                WHERE account_number = :HV-ACCT
+                  FOR UPDATE
+           END-EXEC
+           IF SQLCODE NOT = 0
+               EXEC SQL ROLLBACK END-EXEC
+               SET IPST-RUN-PARTIAL TO TRUE
+               EXIT PARAGRAPH
+           END-IF
+           MOVE HV-LOCK-2 TO HV-ACCT
+           EXEC SQL
+               SELECT account_number INTO :HV-LOCK-READBACK
+                 FROM balances
+                WHERE account_number = :HV-ACCT
+                  FOR UPDATE
+           END-EXEC
+           IF SQLCODE NOT = 0
+               EXEC SQL ROLLBACK END-EXEC
+               SET IPST-RUN-PARTIAL TO TRUE
+               EXIT PARAGRAPH
+           END-IF
+           MOVE WS-CUR-ACCRUED TO HV-AMOUNT-JPY
+           MOVE WS-NEXT-SERIAL TO HV-SOURCE-SEQ
+           EXEC SQL
+               INSERT INTO transactions
+                   (txn_id, business_date, system_ts, category,
+                    account_number, amount_jpy, currency,
+                    description, source_system,
+                    source_batch_id, source_seq, status,
+                    created_by, created_ts)
+               VALUES
+                   (:HV-TXN-ID,
+                    CAST(:HV-POSTING-LAST AS DATE),
+                    CURRENT_TIMESTAMP,
+                    '50',
+                    :HV-CR-ACCT,
+                    :HV-AMOUNT-JPY,
+                    'JPY',
+                    'Interest posting',
+                    'INTEREST',
+                    :HV-BATCH-ID,
+                    :HV-SOURCE-SEQ,
+                    'PT',
+                    '14-interestpost',
+                    CURRENT_TIMESTAMP)
+           END-EXEC
+           IF SQLCODE NOT = 0
+               EXEC SQL ROLLBACK END-EXEC
+               SET IPST-RUN-PARTIAL TO TRUE
+               EXIT PARAGRAPH
+           END-IF
+           STRING HV-TXN-ID "01" DELIMITED BY SIZE INTO HV-POSTING-ID
+           MOVE 1 TO HV-LINE-NO
+           MOVE WS-CUR-ACCRUED TO HV-DEBIT-JPY
+           MOVE 0 TO HV-CREDIT-JPY
+           MOVE "DR" TO HV-POSTING-ROLE
+           EXEC SQL
+               INSERT INTO postings
+                   (posting_id, txn_id, line_no, account_number,
+                    debit_jpy, credit_jpy, posting_role,
+                    business_date, created_ts)
+               VALUES
+                   (:HV-POSTING-ID, :HV-TXN-ID, :HV-LINE-NO,
+                    :HV-DR-ACCT, :HV-DEBIT-JPY, :HV-CREDIT-JPY,
+                    :HV-POSTING-ROLE,
+                    CAST(:HV-POSTING-LAST AS DATE),
+                    CURRENT_TIMESTAMP)
+           END-EXEC
+           IF SQLCODE NOT = 0
+               EXEC SQL ROLLBACK END-EXEC
+               SET IPST-RUN-PARTIAL TO TRUE
+               EXIT PARAGRAPH
+           END-IF
+           STRING HV-TXN-ID "02" DELIMITED BY SIZE INTO HV-POSTING-ID
+           MOVE 2 TO HV-LINE-NO
+           MOVE 0 TO HV-DEBIT-JPY
+           MOVE WS-CUR-ACCRUED TO HV-CREDIT-JPY
+           MOVE "CR" TO HV-POSTING-ROLE
+           EXEC SQL
+               INSERT INTO postings
+                   (posting_id, txn_id, line_no, account_number,
+                    debit_jpy, credit_jpy, posting_role,
+                    business_date, created_ts)
+               VALUES
+                   (:HV-POSTING-ID, :HV-TXN-ID, :HV-LINE-NO,
+                    :HV-CR-ACCT, :HV-DEBIT-JPY, :HV-CREDIT-JPY,
+                    :HV-POSTING-ROLE,
+                    CAST(:HV-POSTING-LAST AS DATE),
+                    CURRENT_TIMESTAMP)
+           END-EXEC
+           IF SQLCODE NOT = 0
+               EXEC SQL ROLLBACK END-EXEC
+               SET IPST-RUN-PARTIAL TO TRUE
+               EXIT PARAGRAPH
+           END-IF
+           EXEC SQL
+               UPDATE balances
+                  SET balance_jpy = balance_jpy - :HV-AMOUNT-JPY,
+                      last_txn_id = :HV-TXN-ID,
+                      last_business_date =
+                          CAST(:HV-POSTING-LAST AS DATE),
+                      updated_ts = CURRENT_TIMESTAMP
+                WHERE account_number = :HV-DR-ACCT
+           END-EXEC
+           IF SQLCODE NOT = 0
+               EXEC SQL ROLLBACK END-EXEC
+               SET IPST-RUN-PARTIAL TO TRUE
+               EXIT PARAGRAPH
+           END-IF
+           MOVE SQLERRD(3) TO WS-SQLERRD-3
+           IF WS-SQLERRD-3 NOT = 1
+               EXEC SQL ROLLBACK END-EXEC
+               SET IPST-RUN-FATAL TO TRUE
+               EXIT PARAGRAPH
+           END-IF
+           EXEC SQL
+               UPDATE balances
+                  SET balance_jpy = balance_jpy + :HV-AMOUNT-JPY,
+                      last_txn_id = :HV-TXN-ID,
+                      last_business_date =
+                          CAST(:HV-POSTING-LAST AS DATE),
+                      updated_ts = CURRENT_TIMESTAMP
+                WHERE account_number = :HV-CR-ACCT
+           END-EXEC
+           IF SQLCODE NOT = 0
+               EXEC SQL ROLLBACK END-EXEC
+               SET IPST-RUN-PARTIAL TO TRUE
+               EXIT PARAGRAPH
+           END-IF
+           MOVE SQLERRD(3) TO WS-SQLERRD-3
+           IF WS-SQLERRD-3 NOT = 1
+               EXEC SQL ROLLBACK END-EXEC
+               SET IPST-RUN-FATAL TO TRUE
+               EXIT PARAGRAPH
+           END-IF
+           EXEC SQL
+               UPDATE interest_accruals
+                  SET status = 'PT', posted_txn_id = :HV-TXN-ID
+                WHERE account_number = :HV-CR-ACCT
+                  AND business_date BETWEEN
+                      CAST(:HV-POSTING-FIRST AS DATE) AND
+                      CAST(:HV-POSTING-LAST AS DATE)
+                  AND status = 'AC'
+           END-EXEC
+           IF SQLCODE NOT = 0
+               EXEC SQL ROLLBACK END-EXEC
+               SET IPST-RUN-PARTIAL TO TRUE
+               EXIT PARAGRAPH
+           END-IF
+           MOVE SQLERRD(3) TO WS-SQLERRD-3
+           ADD WS-SQLERRD-3 TO WS-CTR-AC-CONSUMED
+           PERFORM EMIT-PER-TXN-AUDIT
+           EXEC SQL COMMIT END-EXEC
+           ADD 1 TO WS-CTR-POSTED
+           ADD WS-CUR-ACCRUED TO WS-CTR-TOTAL-JPY.
+
+       EMIT-PER-TXN-AUDIT.
+           MOVE "14-interestpost" TO WS-AUD-SUBSYSTEM
+           MOVE "INTEREST_POSTED" TO WS-AUD-ACTION
+           MOVE "SYSTEM"          TO WS-AUD-ACTOR
+           MOVE "TXN"             TO WS-AUD-TARGET-TYPE
+           MOVE WS-NEW-TXN-ID     TO WS-AUD-TARGET-ID
+           MOVE "I"               TO WS-AUD-SEVERITY
+           MOVE IPST-RUN-BUSINESS-DATE TO WS-AUD-BUSINESS-DATE
+           MOVE SPACES TO WS-AUD-PAYLOAD-JSON
+           MOVE WS-CUR-ACCRUED TO WS-AMT-DISP
+           STRING '{"txn_id":"' WS-NEW-TXN-ID
+                  '","acct":"' WS-CUR-ACCT
+                  '","amount":"' FUNCTION TRIM(WS-AMT-DISP) '"}'
+                  DELIMITED BY SIZE INTO WS-AUD-PAYLOAD-JSON
+           CALL "AUD-WRITE" USING WS-AUD-ROW WS-AUD-RC
+               ON EXCEPTION CONTINUE
+           END-CALL.
+
+       EMIT-SUMMARY-AUDIT.
+           MOVE "14-interestpost"   TO WS-AUD-SUBSYSTEM
+           MOVE "IPST_MTH_SUMMARY"  TO WS-AUD-ACTION
+           MOVE "SYSTEM"            TO WS-AUD-ACTOR
+           MOVE "BATCH"             TO WS-AUD-TARGET-TYPE
+           MOVE IPST-RUN-BATCH-ID   TO WS-AUD-TARGET-ID
+           MOVE "I"                 TO WS-AUD-SEVERITY
+           MOVE IPST-RUN-BUSINESS-DATE TO WS-AUD-BUSINESS-DATE
+           MOVE SPACES TO WS-AUD-PAYLOAD-JSON
+           MOVE WS-CTR-POSTED TO WS-AMT-DISP
+           STRING '{"batch_id":"' IPST-RUN-BATCH-ID
+                  '","posted":"' FUNCTION TRIM(WS-AMT-DISP) '"}'
+                  DELIMITED BY SIZE INTO WS-AUD-PAYLOAD-JSON
+           CALL "AUD-WRITE" USING WS-AUD-ROW WS-AUD-RC
+               ON EXCEPTION CONTINUE
+           END-CALL.
+
+       POPULATE-OUTPUT.
+           MOVE WS-CTR-AGG         TO IPST-OUT-ACCOUNTS-AGGREGATED
+           MOVE WS-CTR-POSTED      TO IPST-OUT-ACCOUNTS-POSTED
+           MOVE WS-CTR-CLOSED      TO IPST-OUT-SKIPPED-CLOSED
+           MOVE WS-CTR-PROD        TO IPST-OUT-SKIPPED-PRODUCT
+           MOVE WS-CTR-ALREADY     TO IPST-OUT-SKIPPED-ALREADY
+           MOVE WS-CTR-HELPER      TO IPST-OUT-SKIPPED-HELPER
+           MOVE WS-CTR-AC-CONSUMED TO IPST-OUT-AC-ROWS-CONSUMED
+           MOVE WS-CTR-TOTAL-JPY   TO IPST-OUT-TOTAL-POSTED-JPY.
+
+       CLEANUP-AND-EXIT.
+           IF WS-CONNECTED
+               EXEC SQL ROLLBACK END-EXEC
+               EXEC SQL DISCONNECT ALL END-EXEC
+               MOVE "N" TO WS-CONN-FLAG
+           END-IF.
+
+           COPY "double-entry-helper-procs.cpy".
+
+       END PROGRAM IPST-RUN-MONTHEND.

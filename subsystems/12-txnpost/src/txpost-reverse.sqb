@@ -1,0 +1,741 @@
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. TXPOST-REVERSE.
+
+       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+
+       01  WS-CONN-FLAG              PIC X(1) VALUE "N".
+           88  WS-CONNECTED                  VALUE "Y".
+
+       01  WS-FLAGS.
+           05  WS-ORIG-FOUND-FLAG    PIC X(1) VALUE "N".
+               88  WS-ORIG-FOUND             VALUE "Y".
+           05  WS-DUP-FOUND-FLAG     PIC X(1) VALUE "N".
+               88  WS-DUP-FOUND              VALUE "Y".
+           05  WS-DR-EXEMPT-FLAG     PIC X(1) VALUE "N".
+               88  WS-DR-EXEMPT              VALUE "Y".
+
+       01  WS-CASH-ACCOUNT           PIC 9(13) VALUE 0010010000001.
+       01  WS-CLEARING-ACCOUNT       PIC 9(13) VALUE 0010010000002.
+
+       01  WS-RV-DR-ACCT             PIC 9(13).
+       01  WS-RV-CR-ACCT             PIC 9(13).
+       01  WS-LOCK-ACCT-1            PIC 9(13).
+       01  WS-LOCK-ACCT-2            PIC 9(13).
+       01  WS-NEW-SERIAL             PIC 9(10) VALUE 9000000001.
+
+           COPY "shared-log-api.cpy".
+
+           COPY "aud-write-api.cpy".
+
+           EXEC SQL BEGIN DECLARE SECTION END-EXEC.
+
+       01  HV-DB-NAME                PIC X(80).
+       01  HV-DB-USER                PIC X(32).
+       01  HV-DB-PASS                PIC X(32).
+
+       01  HV-ORIG-TXN-ID            PIC X(18).
+       01  HV-NEW-TXN-ID             PIC X(18).
+       01  HV-BUSINESS-DATE          PIC X(10).
+
+       01  HV-ORIG-STATUS            PIC X(2).
+       01  HV-ORIG-CATEGORY          PIC X(2).
+       01  HV-ORIG-ACCT              PIC X(13).
+       01  HV-ORIG-COUNTER           PIC X(13).
+       01  HV-ORIG-AMOUNT            PIC S9(18) COMP-3.
+       01  HV-ORIG-BDATE-STR         PIC X(10).
+
+       01  HV-EXISTS-CHECK           PIC S9(4) COMP-3.
+       01  HV-MAX-SERIAL             PIC S9(10) COMP-3.
+
+       01  HV-LOCK-READBACK          PIC X(13).
+       01  HV-BALANCE-AMT            PIC S9(18) COMP-3.
+
+       01  HV-DR-ACCT                PIC X(13).
+       01  HV-CR-ACCT                PIC X(13).
+       01  HV-POSTING-ID             PIC X(20).
+       01  HV-LINE-NO                PIC S9(4) COMP-3.
+       01  HV-DEBIT-JPY              PIC S9(18) COMP-3.
+       01  HV-CREDIT-JPY             PIC S9(18) COMP-3.
+       01  HV-POSTING-ROLE           PIC X(2).
+       01  HV-AMOUNT-JPY             PIC S9(18) COMP-3.
+
+       01  HV-RV-BATCH-ID            PIC X(14).
+       01  HV-RV-SEQ                 PIC S9(9) COMP-3.
+
+       01  OBX-BDATE-TXT             PIC X(10).
+       01  OBX-SUBSYSTEM             PIC X(30).
+       01  OBX-ACTION                PIC X(50).
+       01  OBX-ACTOR                 PIC X(30).
+       01  OBX-TARGET-TYPE           PIC X(20).
+       01  OBX-TARGET-ID             PIC X(20).
+       01  OBX-PAYLOAD               PIC X(2000).
+       01  OBX-SEVERITY              PIC X(1).
+       01  OBX-EVENT-KEY             PIC X(80).
+
+           EXEC SQL END DECLARE SECTION END-EXEC.
+
+           EXEC SQL INCLUDE sqlca END-EXEC.
+
+       01  WS-SQLERRD-3              PIC S9(9) COMP.
+       01  WS-DATE-Y                 PIC 9(4).
+       01  WS-DATE-M                 PIC 9(2).
+       01  WS-DATE-D                 PIC 9(2).
+       01  WS-RV-BDATE               PIC 9(8).
+
+           COPY "aud-drain-state.cpy".
+
+       01  WS-ATTEMPT-RESULT         PIC X(8) VALUE "OK".
+       01  WS-RETRY-COUNT            PIC 9(3) VALUE 0.
+       01  WS-MAX-RETRIES            PIC 9(3) VALUE 5.
+       01  WS-FSM-DONE               PIC X(1) VALUE "N".
+       01  WS-RV-RETRIES-TOTAL       PIC 9(7) VALUE 0.
+       01  WS-RV-OUTCOME             PIC X(8) VALUE SPACES.
+       01  WS-BACKOFF-BASE-MS        PIC 9(6) VALUE 10.
+       01  WS-BACKOFF-CAP-MS         PIC 9(6) VALUE 2000.
+       01  WS-BACKOFF-MULT           PIC 9(7) VALUE 1.
+       01  WS-BACKOFF-N              PIC 9(3) VALUE 0.
+       01  WS-BACKOFF-MS             PIC 9(9) VALUE 0.
+       01  WS-JITTER-MS              PIC 9(6) VALUE 0.
+       01  WS-BACKOFF-NANOS          PIC 9(10) VALUE 0.
+       01  WS-FAULT-CONFLICT-N       PIC 9(3) VALUE 0.
+       01  WS-FAULT-REMAINING        PIC 9(3) VALUE 0.
+       01  WS-SER-CONFIG-WK.
+           05  WS-ENV-BUF            PIC X(16) VALUE SPACES.
+           05  WS-FUNC-DATE-BUF      PIC X(21) VALUE SPACES.
+           05  WS-RAND-SEED          PIC 9(9) VALUE 0.
+           05  WS-RAND-INIT          PIC 9V9(4) VALUE 0.
+
+       LINKAGE SECTION.
+           COPY "tx-post-api.cpy".
+
+       PROCEDURE DIVISION USING TXPOST-REVERSE-INPUT
+                                TXPOST-REVERSE-OUTPUT.
+       MAIN-LOGIC.
+           PERFORM INIT-OUTPUT
+           PERFORM VALIDATE-INPUT
+           IF NOT TXPV-OK GOBACK END-IF
+           PERFORM DB-CONNECT
+           IF NOT WS-CONNECTED
+               SET TXPV-IO-FAIL TO TRUE
+               GOBACK
+           END-IF
+           PERFORM INIT-SER-CONFIG
+           PERFORM DRAIN-AUDIT-OUTBOX
+           PERFORM SELECT-ORIG-TXN
+           IF NOT TXPV-OK
+               PERFORM CLEANUP-AND-EXIT
+               GOBACK
+           END-IF
+           PERFORM CHECK-ORIG-STATUS
+           IF NOT TXPV-OK
+               PERFORM CLEANUP-AND-EXIT
+               GOBACK
+           END-IF
+           PERFORM DETERMINE-RV-ACCTS
+           IF NOT TXPV-OK
+               PERFORM CLEANUP-AND-EXIT
+               GOBACK
+           END-IF
+           PERFORM POST-RV-PARA
+           PERFORM DRAIN-AUDIT-OUTBOX
+           PERFORM DB-DISCONNECT
+           GOBACK.
+
+       CLEANUP-AND-EXIT.
+           EXEC SQL ROLLBACK END-EXEC
+           PERFORM DB-DISCONNECT.
+
+       DB-DISCONNECT.
+           IF WS-CONNECTED
+               EXEC SQL DISCONNECT ALL END-EXEC
+               MOVE "N" TO WS-CONN-FLAG
+           END-IF.
+
+       INIT-OUTPUT.
+           SET TXPV-OK TO TRUE
+           MOVE SPACES TO TXPV-NEW-RV-TXN-ID
+           MOVE "N" TO TXPV-IN-DOUBT-RESOLVED
+           MOVE "N" TO WS-ORIG-FOUND-FLAG WS-DUP-FOUND-FLAG
+                       WS-DR-EXEMPT-FLAG WS-CONN-FLAG.
+
+       VALIDATE-INPUT.
+           IF TXPV-ORIG-TXN-ID = SPACES OR
+              TXPV-REVERSAL-REASON = SPACES OR
+              TXPV-OPERATOR-ID = SPACES
+               SET TXPV-INVALID TO TRUE
+           END-IF.
+
+       DB-CONNECT.
+           MOVE "banking" TO HV-DB-NAME
+           MOVE "cobol"   TO HV-DB-USER
+           MOVE "cobol"   TO HV-DB-PASS
+           EXEC SQL
+               CONNECT :HV-DB-USER IDENTIFIED BY :HV-DB-PASS
+                   USING :HV-DB-NAME
+           END-EXEC
+           IF SQLCODE = 0
+               SET WS-CONNECTED TO TRUE
+           END-IF.
+
+       SELECT-ORIG-TXN.
+           MOVE TXPV-ORIG-TXN-ID TO HV-ORIG-TXN-ID
+           EXEC SQL
+               SELECT status, category, account_number,
+                      COALESCE(counter_account_number, ''),
+                      amount_jpy,
+                      TO_CHAR(business_date, 'YYYYMMDD')
+                 INTO :HV-ORIG-STATUS, :HV-ORIG-CATEGORY,
+                      :HV-ORIG-ACCT, :HV-ORIG-COUNTER,
+                      :HV-ORIG-AMOUNT, :HV-ORIG-BDATE-STR
+                 FROM transactions
+                WHERE txn_id = :HV-ORIG-TXN-ID
+           END-EXEC
+           EVALUATE SQLCODE
+               WHEN 0
+                   SET WS-ORIG-FOUND TO TRUE
+               WHEN 100
+                   SET TXPV-ORIG-NOT-FOUND TO TRUE
+               WHEN OTHER
+                   SET TXPV-IO-FAIL TO TRUE
+           END-EVALUATE.
+
+       CHECK-ORIG-STATUS.
+           IF HV-ORIG-STATUS = "RV"
+               SET TXPV-INVALID TO TRUE
+               EXIT PARAGRAPH
+           END-IF
+           IF HV-ORIG-STATUS NOT = "PT" AND
+              HV-ORIG-STATUS NOT = "SE"
+               SET TXPV-INVALID TO TRUE
+           END-IF.
+
+       CHECK-ALREADY-REVERSED.
+           EXEC SQL
+               SELECT 1 INTO :HV-EXISTS-CHECK
+                 FROM transactions
+                WHERE reversal_of = :HV-ORIG-TXN-ID
+                  AND status = 'RV'
+           END-EXEC
+           EVALUATE SQLCODE
+               WHEN 0
+                   SET WS-DUP-FOUND TO TRUE
+                   MOVE "REJECT" TO WS-ATTEMPT-RESULT
+               WHEN 100
+                   CONTINUE
+               WHEN OTHER
+                   PERFORM CLASSIFY-SQL-RESULT
+           END-EVALUATE.
+
+       ALLOCATE-RV-TXN-ID.
+           MOVE FUNCTION CURRENT-DATE(1:8) TO WS-RV-BDATE
+           PERFORM BUILD-HV-BDATE
+           MOVE 9000000001 TO HV-MAX-SERIAL
+           EXEC SQL
+               SELECT COALESCE(MAX(CAST(SUBSTRING(txn_id, 9, 10)
+                                       AS BIGINT)), 9000000000)
+                 INTO :HV-MAX-SERIAL
+                 FROM transactions
+                WHERE status = 'RV'
+                  AND business_date = CAST(:HV-BUSINESS-DATE AS DATE)
+                  AND CAST(SUBSTRING(txn_id, 9, 10) AS BIGINT)
+                      >= 9000000001
+           END-EXEC
+           IF SQLCODE NOT = 0 AND SQLCODE NOT = 100
+               PERFORM CLASSIFY-SQL-RESULT
+               EXIT PARAGRAPH
+           END-IF
+           IF HV-MAX-SERIAL >= 9999999999
+               MOVE "DEFER" TO WS-ATTEMPT-RESULT
+               DISPLAY "[TXPOST-REVERSE] RV id range exhausted for "
+                       "business_date=" HV-BUSINESS-DATE UPON SYSERR
+               EXIT PARAGRAPH
+           END-IF
+           ADD 1 TO HV-MAX-SERIAL
+           MOVE HV-MAX-SERIAL TO WS-NEW-SERIAL
+           STRING WS-RV-BDATE WS-NEW-SERIAL
+                  DELIMITED BY SIZE INTO HV-NEW-TXN-ID.
+
+       DETERMINE-RV-ACCTS.
+           EVALUATE HV-ORIG-CATEGORY
+               WHEN "10"
+                   MOVE HV-ORIG-ACCT       TO WS-RV-DR-ACCT
+                   MOVE WS-CASH-ACCOUNT    TO WS-RV-CR-ACCT
+               WHEN "20"
+                   MOVE WS-CASH-ACCOUNT    TO WS-RV-DR-ACCT
+                   MOVE HV-ORIG-ACCT       TO WS-RV-CR-ACCT
+               WHEN "30"
+                   MOVE HV-ORIG-COUNTER    TO WS-RV-DR-ACCT
+                   MOVE HV-ORIG-ACCT       TO WS-RV-CR-ACCT
+               WHEN "40"
+                   MOVE WS-CLEARING-ACCOUNT TO WS-RV-DR-ACCT
+                   MOVE HV-ORIG-ACCT       TO WS-RV-CR-ACCT
+               WHEN OTHER
+                   SET TXPV-INVALID TO TRUE
+           END-EVALUATE.
+
+       CHECK-C2-REVERSAL-I3.
+           IF WS-RV-DR-ACCT = WS-CASH-ACCOUNT OR
+              WS-RV-DR-ACCT = WS-CLEARING-ACCOUNT
+               SET WS-DR-EXEMPT TO TRUE
+               EXIT PARAGRAPH
+           END-IF
+           MOVE WS-RV-DR-ACCT TO HV-DR-ACCT
+           EXEC SQL
+               SELECT balance_jpy INTO :HV-BALANCE-AMT
+                 FROM balances
+                WHERE account_number = :HV-DR-ACCT
+           END-EXEC
+           IF SQLCODE NOT = 0
+               PERFORM CLASSIFY-SQL-RESULT
+               EXIT PARAGRAPH
+           END-IF
+           IF (HV-BALANCE-AMT - HV-ORIG-AMOUNT) < 0
+               MOVE "REJECT" TO WS-ATTEMPT-RESULT
+           END-IF.
+
+       ACQUIRE-LOCKS.
+           IF WS-RV-DR-ACCT < WS-RV-CR-ACCT
+               MOVE WS-RV-DR-ACCT TO WS-LOCK-ACCT-1
+               MOVE WS-RV-CR-ACCT TO WS-LOCK-ACCT-2
+           ELSE
+               MOVE WS-RV-CR-ACCT TO WS-LOCK-ACCT-1
+               MOVE WS-RV-DR-ACCT TO WS-LOCK-ACCT-2
+           END-IF
+           MOVE WS-LOCK-ACCT-1 TO HV-DR-ACCT
+           EXEC SQL
+               SELECT account_number INTO :HV-LOCK-READBACK
+                 FROM balances
+                WHERE account_number = :HV-DR-ACCT
+                  FOR UPDATE
+           END-EXEC
+           PERFORM CLASSIFY-SQL-RESULT
+           IF WS-ATTEMPT-RESULT NOT = "OK"
+               EXIT PARAGRAPH
+           END-IF
+           MOVE WS-LOCK-ACCT-2 TO HV-DR-ACCT
+           EXEC SQL
+               SELECT account_number INTO :HV-LOCK-READBACK
+                 FROM balances
+                WHERE account_number = :HV-DR-ACCT
+                  FOR UPDATE
+           END-EXEC
+           PERFORM CLASSIFY-SQL-RESULT.
+
+       INSERT-RV-TXN.
+           PERFORM BUILD-HV-BDATE
+           MOVE HV-ORIG-ACCT      TO HV-DR-ACCT
+           STRING "RV" WS-RV-BDATE
+                  DELIMITED BY SIZE INTO HV-RV-BATCH-ID
+           MOVE WS-NEW-SERIAL     TO HV-RV-SEQ
+           EXEC SQL
+               INSERT INTO transactions
+                   (txn_id, business_date, system_ts, category,
+                    account_number, counter_account_number,
+                    amount_jpy, currency, description,
+                    source_system, source_batch_id, source_seq,
+                    status, reversal_of, created_by, created_ts)
+               VALUES
+                   (:HV-NEW-TXN-ID,
+                    CAST(:HV-BUSINESS-DATE AS DATE),
+                    CURRENT_TIMESTAMP,
+                    :HV-ORIG-CATEGORY,
+                    :HV-DR-ACCT,
+                    NULLIF(:HV-ORIG-COUNTER, '             '),
+                    :HV-ORIG-AMOUNT,
+                    'JPY',
+                    'Reversal',
+                    'REVERSAL',
+                    :HV-RV-BATCH-ID,
+                    :HV-RV-SEQ,
+                    'RV',
+                    :HV-ORIG-TXN-ID,
+                    'TXPOST-REVERSE',
+                    CURRENT_TIMESTAMP)
+           END-EXEC
+           IF SQLCODE = 0
+               MOVE "OK" TO WS-ATTEMPT-RESULT
+           ELSE
+               IF SQLSTATE = "23505"
+                   MOVE "CONFLICT" TO WS-ATTEMPT-RESULT
+               ELSE
+                   PERFORM CLASSIFY-SQL-RESULT
+               END-IF
+           END-IF.
+
+       INSERT-RV-POSTINGS.
+           MOVE WS-RV-DR-ACCT TO HV-DR-ACCT
+           MOVE WS-RV-CR-ACCT TO HV-CR-ACCT
+           STRING HV-NEW-TXN-ID "01" DELIMITED BY SIZE
+                  INTO HV-POSTING-ID
+           MOVE 1 TO HV-LINE-NO
+           MOVE HV-ORIG-AMOUNT TO HV-DEBIT-JPY
+           MOVE 0 TO HV-CREDIT-JPY
+           MOVE "DR" TO HV-POSTING-ROLE
+           EXEC SQL
+               INSERT INTO postings
+                   (posting_id, txn_id, line_no, account_number,
+                    debit_jpy, credit_jpy, posting_role,
+                    business_date, created_ts)
+               VALUES
+                   (:HV-POSTING-ID, :HV-NEW-TXN-ID, :HV-LINE-NO,
+                    :HV-DR-ACCT, :HV-DEBIT-JPY, :HV-CREDIT-JPY,
+                    :HV-POSTING-ROLE,
+                    CAST(:HV-BUSINESS-DATE AS DATE),
+                    CURRENT_TIMESTAMP)
+           END-EXEC
+           IF SQLCODE NOT = 0
+               PERFORM CLASSIFY-SQL-RESULT
+               EXIT PARAGRAPH
+           END-IF
+
+           STRING HV-NEW-TXN-ID "02" DELIMITED BY SIZE
+                  INTO HV-POSTING-ID
+           MOVE 2 TO HV-LINE-NO
+           MOVE 0 TO HV-DEBIT-JPY
+           MOVE HV-ORIG-AMOUNT TO HV-CREDIT-JPY
+           MOVE "CR" TO HV-POSTING-ROLE
+           EXEC SQL
+               INSERT INTO postings
+                   (posting_id, txn_id, line_no, account_number,
+                    debit_jpy, credit_jpy, posting_role,
+                    business_date, created_ts)
+               VALUES
+                   (:HV-POSTING-ID, :HV-NEW-TXN-ID, :HV-LINE-NO,
+                    :HV-CR-ACCT, :HV-DEBIT-JPY, :HV-CREDIT-JPY,
+                    :HV-POSTING-ROLE,
+                    CAST(:HV-BUSINESS-DATE AS DATE),
+                    CURRENT_TIMESTAMP)
+           END-EXEC
+           IF SQLCODE NOT = 0
+               PERFORM CLASSIFY-SQL-RESULT
+           END-IF.
+
+       UPDATE-RV-BALANCES.
+           MOVE WS-RV-DR-ACCT TO HV-DR-ACCT
+           MOVE HV-ORIG-AMOUNT TO HV-AMOUNT-JPY
+           EXEC SQL
+               UPDATE balances
+                  SET balance_jpy = balance_jpy - :HV-AMOUNT-JPY,
+                      last_txn_id = :HV-NEW-TXN-ID,
+                      last_business_date =
+                        CAST(:HV-BUSINESS-DATE AS DATE),
+                      updated_ts = CURRENT_TIMESTAMP
+                WHERE account_number = :HV-DR-ACCT
+           END-EXEC
+           IF SQLCODE NOT = 0
+               PERFORM CLASSIFY-SQL-RESULT
+               EXIT PARAGRAPH
+           END-IF
+           MOVE SQLERRD(3) TO WS-SQLERRD-3
+           IF WS-SQLERRD-3 NOT = 1
+               MOVE "FATAL" TO WS-ATTEMPT-RESULT
+               EXIT PARAGRAPH
+           END-IF
+
+           MOVE WS-RV-CR-ACCT TO HV-CR-ACCT
+           EXEC SQL
+               UPDATE balances
+                  SET balance_jpy = balance_jpy + :HV-AMOUNT-JPY,
+                      last_txn_id = :HV-NEW-TXN-ID,
+                      last_business_date =
+                        CAST(:HV-BUSINESS-DATE AS DATE),
+                      updated_ts = CURRENT_TIMESTAMP
+                WHERE account_number = :HV-CR-ACCT
+           END-EXEC
+           IF SQLCODE NOT = 0
+               PERFORM CLASSIFY-SQL-RESULT
+               EXIT PARAGRAPH
+           END-IF
+           MOVE SQLERRD(3) TO WS-SQLERRD-3
+           IF WS-SQLERRD-3 NOT = 1
+               MOVE "FATAL" TO WS-ATTEMPT-RESULT
+           END-IF.
+
+       BUILD-AUDIT.
+           MOVE "12-txnpost"    TO WS-AUD-SUBSYSTEM
+           MOVE "TXN_REVERSED"  TO WS-AUD-ACTION
+           MOVE TXPV-OPERATOR-ID TO WS-AUD-ACTOR
+           MOVE "TXN"           TO WS-AUD-TARGET-TYPE
+           MOVE HV-NEW-TXN-ID   TO WS-AUD-TARGET-ID
+           MOVE "I"             TO WS-AUD-SEVERITY
+           MOVE WS-RV-BDATE     TO WS-AUD-BUSINESS-DATE
+           MOVE SPACES TO WS-AUD-PAYLOAD-JSON
+           STRING '{"orig_txn_id":"' TXPV-ORIG-TXN-ID
+                  '","new_rv_txn_id":"' HV-NEW-TXN-ID
+                  '","operator":"' TXPV-OPERATOR-ID '"}'
+                  DELIMITED BY SIZE INTO WS-AUD-PAYLOAD-JSON
+           MOVE SPACES TO WS-AUD-EVENT-KEY
+           STRING FUNCTION TRIM(WS-AUD-ACTION) ":"
+                  FUNCTION TRIM(WS-AUD-TARGET-ID)
+                  DELIMITED BY SIZE INTO WS-AUD-EVENT-KEY.
+
+       INSERT-OUTBOX-INTENT.
+           MOVE WS-AUD-SUBSYSTEM    TO OBX-SUBSYSTEM
+           MOVE WS-AUD-ACTION       TO OBX-ACTION
+           MOVE WS-AUD-ACTOR        TO OBX-ACTOR
+           MOVE WS-AUD-TARGET-TYPE  TO OBX-TARGET-TYPE
+           MOVE WS-AUD-TARGET-ID    TO OBX-TARGET-ID
+           MOVE WS-AUD-SEVERITY     TO OBX-SEVERITY
+           MOVE WS-AUD-EVENT-KEY    TO OBX-EVENT-KEY
+           IF WS-AUD-PAYLOAD-JSON = SPACES
+               MOVE "{}" TO OBX-PAYLOAD
+           ELSE
+               MOVE WS-AUD-PAYLOAD-JSON TO OBX-PAYLOAD
+           END-IF
+           MOVE SPACES TO OBX-BDATE-TXT
+           STRING WS-AUD-BUSINESS-DATE(1:4) DELIMITED BY SIZE
+                  "-"                       DELIMITED BY SIZE
+                  WS-AUD-BUSINESS-DATE(5:2) DELIMITED BY SIZE
+                  "-"                       DELIMITED BY SIZE
+                  WS-AUD-BUSINESS-DATE(7:2) DELIMITED BY SIZE
+                  INTO OBX-BDATE-TXT
+           END-STRING
+           EXEC SQL
+               INSERT INTO audit_outbox (
+                   business_date, subsystem, action, actor,
+                   target_type, target_id, payload_json,
+                   severity, event_key
+               ) VALUES (
+                   CAST(:OBX-BDATE-TXT AS date),
+                   :OBX-SUBSYSTEM, :OBX-ACTION, :OBX-ACTOR,
+                   :OBX-TARGET-TYPE, :OBX-TARGET-ID,
+                   CAST(:OBX-PAYLOAD AS jsonb),
+                   :OBX-SEVERITY, :OBX-EVENT-KEY
+               )
+           END-EXEC
+           PERFORM CLASSIFY-SQL-RESULT.
+
+       RESOLVE-IN-DOUBT.
+           EXEC SQL DISCONNECT ALL END-EXEC
+           MOVE "N" TO WS-CONN-FLAG
+           EXEC SQL
+               CONNECT :HV-DB-USER IDENTIFIED BY :HV-DB-PASS
+                   USING :HV-DB-NAME
+           END-EXEC
+           IF SQLCODE NOT = 0
+               MOVE SPACES TO TXPV-NEW-RV-TXN-ID
+               SET TXPV-IO-FAIL TO TRUE
+               EXIT PARAGRAPH
+           END-IF
+           SET WS-CONNECTED TO TRUE
+           EXEC SQL
+               SELECT 1 INTO :HV-EXISTS-CHECK
+                 FROM transactions
+                WHERE txn_id = :HV-NEW-TXN-ID
+           END-EXEC
+           IF SQLCODE = 0
+               MOVE "Y" TO TXPV-IN-DOUBT-RESOLVED
+               MOVE HV-NEW-TXN-ID TO TXPV-NEW-RV-TXN-ID
+               SET TXPV-OK TO TRUE
+           ELSE
+               MOVE SPACES TO TXPV-NEW-RV-TXN-ID
+               SET TXPV-IO-FAIL TO TRUE
+           END-IF.
+
+       INIT-SER-CONFIG.
+           MOVE SPACES TO WS-ENV-BUF
+           ACCEPT WS-ENV-BUF FROM ENVIRONMENT "TXPOST_MAX_RETRIES"
+           IF WS-ENV-BUF NOT = SPACES
+               COMPUTE WS-MAX-RETRIES = FUNCTION NUMVAL(WS-ENV-BUF)
+           END-IF
+           MOVE SPACES TO WS-ENV-BUF
+           ACCEPT WS-ENV-BUF FROM ENVIRONMENT "TXPOST_BACKOFF_MS"
+           IF WS-ENV-BUF NOT = SPACES
+               COMPUTE WS-BACKOFF-BASE-MS = FUNCTION NUMVAL(WS-ENV-BUF)
+           END-IF
+           MOVE SPACES TO WS-ENV-BUF
+           ACCEPT WS-ENV-BUF FROM ENVIRONMENT "TXPOST_FAULT_CONFLICT_N"
+           IF WS-ENV-BUF NOT = SPACES
+               COMPUTE WS-FAULT-CONFLICT-N = FUNCTION NUMVAL(WS-ENV-BUF)
+           END-IF
+           MOVE FUNCTION CURRENT-DATE TO WS-FUNC-DATE-BUF
+           COMPUTE WS-RAND-SEED =
+               FUNCTION NUMVAL(WS-FUNC-DATE-BUF(13:6))
+           MOVE FUNCTION RANDOM(WS-RAND-SEED) TO WS-RAND-INIT.
+
+       POST-RV-PARA.
+           MOVE 0 TO WS-RETRY-COUNT
+           MOVE WS-FAULT-CONFLICT-N TO WS-FAULT-REMAINING
+           MOVE "N" TO WS-FSM-DONE
+           MOVE SPACES TO WS-RV-OUTCOME
+           PERFORM UNTIL WS-FSM-DONE = "Y"
+               PERFORM POST-RV-ATTEMPT
+               EVALUATE WS-ATTEMPT-RESULT
+                   WHEN "OK"
+                       MOVE HV-NEW-TXN-ID TO TXPV-NEW-RV-TXN-ID
+                       SET TXPV-OK TO TRUE
+                       MOVE "OK" TO WS-RV-OUTCOME
+                       MOVE "Y" TO WS-FSM-DONE
+                   WHEN "REJECT"
+                       MOVE SPACES TO TXPV-NEW-RV-TXN-ID
+                       SET TXPV-INVALID TO TRUE
+                       MOVE "REJECT" TO WS-RV-OUTCOME
+                       MOVE "Y" TO WS-FSM-DONE
+                   WHEN "FATAL"
+                       MOVE SPACES TO TXPV-NEW-RV-TXN-ID
+                       SET TXPV-FATAL TO TRUE
+                       MOVE "FATAL" TO WS-RV-OUTCOME
+                       MOVE "Y" TO WS-FSM-DONE
+                   WHEN "INDOUBT"
+                       PERFORM RESOLVE-IN-DOUBT
+                       MOVE "INDOUBT" TO WS-RV-OUTCOME
+                       MOVE "Y" TO WS-FSM-DONE
+                   WHEN "DEFER"
+                       MOVE SPACES TO TXPV-NEW-RV-TXN-ID
+                       SET TXPV-IO-FAIL TO TRUE
+                       MOVE "DEFER" TO WS-RV-OUTCOME
+                       MOVE "Y" TO WS-FSM-DONE
+                   WHEN "CONFLICT"
+                       ADD 1 TO WS-RETRY-COUNT
+                       ADD 1 TO WS-RV-RETRIES-TOTAL
+                       IF WS-RETRY-COUNT > WS-MAX-RETRIES
+                           MOVE SPACES TO TXPV-NEW-RV-TXN-ID
+                           SET TXPV-IO-FAIL TO TRUE
+                           MOVE "EXHAUST" TO WS-RV-OUTCOME
+                           MOVE "Y" TO WS-FSM-DONE
+                       ELSE
+                           PERFORM BACKOFF-SLEEP
+                       END-IF
+                   WHEN OTHER
+                       MOVE SPACES TO TXPV-NEW-RV-TXN-ID
+                       SET TXPV-IO-FAIL TO TRUE
+                       MOVE "Y" TO WS-FSM-DONE
+               END-EVALUATE
+           END-PERFORM
+           PERFORM EMIT-RV-METRICS.
+
+       POST-RV-ATTEMPT.
+           MOVE "OK" TO WS-ATTEMPT-RESULT
+           PERFORM ROLLBACK-QUIET
+           EXEC SQL
+               SET TRANSACTION ISOLATION LEVEL SERIALIZABLE
+           END-EXEC
+           PERFORM CLASSIFY-SQL-RESULT
+           IF WS-ATTEMPT-RESULT NOT = "OK"
+               PERFORM ROLLBACK-QUIET
+               EXIT PARAGRAPH
+           END-IF
+           IF WS-FAULT-REMAINING > 0
+               SUBTRACT 1 FROM WS-FAULT-REMAINING
+               MOVE "CONFLICT" TO WS-ATTEMPT-RESULT
+               PERFORM ROLLBACK-QUIET
+               EXIT PARAGRAPH
+           END-IF
+           PERFORM CHECK-ALREADY-REVERSED
+           IF WS-ATTEMPT-RESULT NOT = "OK"
+               PERFORM ROLLBACK-QUIET
+               EXIT PARAGRAPH
+           END-IF
+           PERFORM ALLOCATE-RV-TXN-ID
+           IF WS-ATTEMPT-RESULT NOT = "OK"
+               PERFORM ROLLBACK-QUIET
+               EXIT PARAGRAPH
+           END-IF
+           PERFORM ACQUIRE-LOCKS
+           IF WS-ATTEMPT-RESULT NOT = "OK"
+               PERFORM ROLLBACK-QUIET
+               EXIT PARAGRAPH
+           END-IF
+           PERFORM CHECK-C2-REVERSAL-I3
+           IF WS-ATTEMPT-RESULT NOT = "OK"
+               PERFORM ROLLBACK-QUIET
+               EXIT PARAGRAPH
+           END-IF
+           PERFORM INSERT-RV-TXN
+           IF WS-ATTEMPT-RESULT NOT = "OK"
+               PERFORM ROLLBACK-QUIET
+               EXIT PARAGRAPH
+           END-IF
+           PERFORM INSERT-RV-POSTINGS
+           IF WS-ATTEMPT-RESULT NOT = "OK"
+               PERFORM ROLLBACK-QUIET
+               EXIT PARAGRAPH
+           END-IF
+           PERFORM UPDATE-RV-BALANCES
+           IF WS-ATTEMPT-RESULT NOT = "OK"
+               PERFORM ROLLBACK-QUIET
+               EXIT PARAGRAPH
+           END-IF
+           PERFORM BUILD-AUDIT
+           PERFORM INSERT-OUTBOX-INTENT
+           IF WS-ATTEMPT-RESULT NOT = "OK"
+               PERFORM ROLLBACK-QUIET
+               EXIT PARAGRAPH
+           END-IF
+           EXEC SQL COMMIT END-EXEC
+           PERFORM CLASSIFY-COMMIT-RESULT.
+
+       CLASSIFY-SQL-RESULT.
+           IF SQLCODE = 0
+               MOVE "OK" TO WS-ATTEMPT-RESULT
+           ELSE
+               IF SQLSTATE = "40001" OR SQLSTATE = "40P01"
+                   MOVE "CONFLICT" TO WS-ATTEMPT-RESULT
+               ELSE
+                   MOVE "DEFER" TO WS-ATTEMPT-RESULT
+               END-IF
+           END-IF.
+
+       CLASSIFY-COMMIT-RESULT.
+           IF SQLCODE = 0 OR SQLCODE = 100
+               MOVE "OK" TO WS-ATTEMPT-RESULT
+           ELSE
+               IF SQLSTATE = "40001" OR SQLSTATE = "40P01"
+                   MOVE "CONFLICT" TO WS-ATTEMPT-RESULT
+               ELSE
+                   MOVE "INDOUBT" TO WS-ATTEMPT-RESULT
+                   MOVE "12-txnpost" TO WS-LOG-SUBSYSTEM
+                   MOVE "WARN " TO WS-LOG-LEVEL
+                   STRING "anomalous RV commit failure sqlstate="
+                          SQLSTATE " txn=" HV-NEW-TXN-ID
+                          DELIMITED BY SIZE INTO WS-LOG-MESSAGE
+                   PERFORM EMIT-LOG
+               END-IF
+           END-IF.
+
+       ROLLBACK-QUIET.
+           EXEC SQL ROLLBACK END-EXEC.
+
+       BACKOFF-SLEEP.
+           MOVE 1 TO WS-BACKOFF-MULT
+           IF WS-RETRY-COUNT > 1
+               COMPUTE WS-BACKOFF-N = WS-RETRY-COUNT - 1
+               PERFORM WS-BACKOFF-N TIMES
+                   COMPUTE WS-BACKOFF-MULT = WS-BACKOFF-MULT * 2
+               END-PERFORM
+           END-IF
+           COMPUTE WS-BACKOFF-MS = WS-BACKOFF-BASE-MS * WS-BACKOFF-MULT
+           IF WS-BACKOFF-MS > WS-BACKOFF-CAP-MS
+               MOVE WS-BACKOFF-CAP-MS TO WS-BACKOFF-MS
+           END-IF
+           COMPUTE WS-JITTER-MS =
+               FUNCTION RANDOM * WS-BACKOFF-BASE-MS
+           COMPUTE WS-BACKOFF-MS = WS-BACKOFF-MS + WS-JITTER-MS
+           COMPUTE WS-BACKOFF-NANOS = WS-BACKOFF-MS * 1000000
+           IF WS-BACKOFF-NANOS > 0
+               CALL "CBL_OC_NANOSLEEP" USING WS-BACKOFF-NANOS
+           END-IF.
+
+       EMIT-LOG.
+           CALL "SHARED-LOG" USING WS-LOG-MSG WS-LOG-RC
+           ON EXCEPTION CONTINUE
+           END-CALL.
+
+       EMIT-RV-METRICS.
+           DISPLAY "rv_ser_metrics retries=" WS-RV-RETRIES-TOTAL
+                   " outcome=" WS-RV-OUTCOME.
+
+       BUILD-HV-BDATE.
+           DIVIDE WS-RV-BDATE BY 10000 GIVING WS-DATE-Y
+           COMPUTE WS-DATE-M =
+               FUNCTION MOD(WS-RV-BDATE / 100, 100)
+           COMPUTE WS-DATE-D = FUNCTION MOD(WS-RV-BDATE, 100)
+           MOVE "0000-00-00" TO HV-BUSINESS-DATE
+           STRING WS-DATE-Y "-" WS-DATE-M "-" WS-DATE-D
+                  DELIMITED BY SIZE INTO HV-BUSINESS-DATE.
+
+          COPY "aud-drain-procs.cpy".
+
+       END PROGRAM TXPOST-REVERSE.

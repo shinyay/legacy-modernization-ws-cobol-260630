@@ -1,0 +1,203 @@
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. IACR-REPORT-SUMMARY.
+       ENVIRONMENT DIVISION.
+       INPUT-OUTPUT SECTION.
+       FILE-CONTROL.
+           SELECT IACR-SUMMARY-FILE
+               ASSIGN TO WS-SUMMARY-PATH
+               ORGANIZATION IS LINE SEQUENTIAL
+               ACCESS MODE IS SEQUENTIAL
+               FILE STATUS IS WS-FS-SUM.
+           SELECT IACR-REPORT-FILE
+               ASSIGN TO WS-REPORT-PATH
+               ORGANIZATION IS LINE SEQUENTIAL
+               ACCESS MODE IS SEQUENTIAL
+               FILE STATUS IS WS-FS-RPT.
+
+       DATA DIVISION.
+       FILE SECTION.
+       FD  IACR-SUMMARY-FILE.
+       01  IACR-SUM-IN-REC          PIC X(200).
+       FD  IACR-REPORT-FILE.
+       01  IACR-RPT-OUT-LINE        PIC X(120).
+
+       WORKING-STORAGE SECTION.
+
+       01  WS-FS-SUM                PIC X(2).
+       01  WS-FS-RPT                PIC X(2).
+       01  WS-CONN-FLAG             PIC X(1) VALUE "N".
+           88  WS-CONNECTED                  VALUE "Y".
+
+       01  WS-SUMMARY-PATH          PIC X(80).
+       01  WS-REPORT-PATH           PIC X(80).
+
+       01  WS-FILE-CTR.
+           05  WS-FILE-ACCRUALS     PIC 9(7) VALUE 0.
+           05  WS-FILE-ALREADY      PIC 9(7) VALUE 0.
+
+       01  WS-PG-CTR.
+           05  WS-PG-AC             PIC 9(7) VALUE 0.
+           05  WS-PG-PT             PIC 9(7) VALUE 0.
+           05  WS-PG-GRAND          PIC 9(7) VALUE 0.
+
+       01  WS-CONSERVATION-PASS     PIC X(1) VALUE "Y".
+
+       01  WS-BDATE-NUM             PIC 9(8).
+       01  WS-DATE-Y                PIC 9(4).
+       01  WS-DATE-M                PIC 9(2).
+       01  WS-DATE-D                PIC 9(2).
+
+           COPY "aud-write-api.cpy".
+
+           EXEC SQL BEGIN DECLARE SECTION END-EXEC.
+
+       01  HV-DB-NAME               PIC X(80).
+       01  HV-DB-USER               PIC X(32).
+       01  HV-DB-PASS               PIC X(32).
+       01  HV-BUSINESS-DATE         PIC X(10).
+       01  HV-COUNT-RESULT          PIC S9(7) COMP-3.
+
+           EXEC SQL END DECLARE SECTION END-EXEC.
+
+           EXEC SQL INCLUDE sqlca END-EXEC.
+
+       LINKAGE SECTION.
+           COPY "iacr-api.cpy".
+
+       PROCEDURE DIVISION USING IACR-REPORT-INPUT IACR-REPORT-OUTPUT.
+       MAIN-LOGIC.
+           PERFORM INIT-OUTPUT
+           PERFORM VALIDATE-INPUT
+           IF NOT IACR-RPT-OK GOBACK END-IF
+           PERFORM DB-CONNECT
+           IF NOT WS-CONNECTED
+               SET IACR-RPT-IO-FAIL TO TRUE
+               GOBACK
+           END-IF
+           PERFORM BUILD-HV-DATE
+           PERFORM PG-CROSS-VERIFY
+           PERFORM CHECK-CONSERVATION
+           PERFORM WRITE-REPORT
+           PERFORM POPULATE-OUTPUT
+           PERFORM CLEANUP-AND-EXIT
+           GOBACK.
+
+       INIT-OUTPUT.
+           SET IACR-RPT-OK TO TRUE
+           MOVE 0 TO IACR-RPT-PRODUCTS-REPORTED
+                     IACR-RPT-TOTAL-ACCRUALS
+                     IACR-RPT-TOTAL-ACCRUED-JPY
+                     IACR-RPT-AC-COUNT
+                     IACR-RPT-PT-COUNT
+                     IACR-RPT-GRAND-TOTAL
+                     IACR-RPT-DURATION-SEC
+           MOVE "Y" TO IACR-RPT-CONSERVATION-PASS
+           MOVE "Y" TO WS-CONSERVATION-PASS
+           MOVE "N" TO WS-CONN-FLAG.
+
+       VALIDATE-INPUT.
+           IF IACR-RPT-BUSINESS-DATE = 0 OR
+              IACR-RPT-SUMMARY-FILENAME = SPACES OR
+              IACR-RPT-REPORT-FILENAME = SPACES
+               SET IACR-RPT-INVALID-INPUT TO TRUE
+           END-IF
+           MOVE IACR-RPT-SUMMARY-FILENAME TO WS-SUMMARY-PATH
+           MOVE IACR-RPT-REPORT-FILENAME  TO WS-REPORT-PATH.
+
+       DB-CONNECT.
+           MOVE "banking" TO HV-DB-NAME
+           MOVE "cobol"   TO HV-DB-USER
+           MOVE "cobol"   TO HV-DB-PASS
+           EXEC SQL
+               CONNECT :HV-DB-USER IDENTIFIED BY :HV-DB-PASS
+                   USING :HV-DB-NAME
+           END-EXEC
+           IF SQLCODE = 0
+               SET WS-CONNECTED TO TRUE
+           END-IF.
+
+       BUILD-HV-DATE.
+           MOVE IACR-RPT-BUSINESS-DATE TO WS-BDATE-NUM
+           DIVIDE WS-BDATE-NUM BY 10000 GIVING WS-DATE-Y
+           COMPUTE WS-DATE-M = FUNCTION MOD(WS-BDATE-NUM / 100, 100)
+           COMPUTE WS-DATE-D = FUNCTION MOD(WS-BDATE-NUM, 100)
+           MOVE "0000-00-00" TO HV-BUSINESS-DATE
+           STRING WS-DATE-Y "-" WS-DATE-M "-" WS-DATE-D
+                  DELIMITED BY SIZE INTO HV-BUSINESS-DATE.
+
+       PG-CROSS-VERIFY.
+           EXEC SQL
+               SELECT COUNT(*) INTO :HV-COUNT-RESULT
+                 FROM interest_accruals
+                WHERE business_date = CAST(:HV-BUSINESS-DATE AS DATE)
+                  AND status = 'AC'
+           END-EXEC
+           IF SQLCODE = 0
+               MOVE HV-COUNT-RESULT TO WS-PG-AC
+           END-IF
+
+           EXEC SQL
+               SELECT COUNT(*) INTO :HV-COUNT-RESULT
+                 FROM interest_accruals
+                WHERE business_date = CAST(:HV-BUSINESS-DATE AS DATE)
+                  AND status = 'PT'
+           END-EXEC
+           IF SQLCODE = 0
+               MOVE HV-COUNT-RESULT TO WS-PG-PT
+           END-IF
+
+           EXEC SQL
+               SELECT COUNT(*) INTO :HV-COUNT-RESULT
+                 FROM interest_accruals
+                WHERE business_date = CAST(:HV-BUSINESS-DATE AS DATE)
+           END-EXEC
+           IF SQLCODE = 0
+               MOVE HV-COUNT-RESULT TO WS-PG-GRAND
+           END-IF.
+
+       CHECK-CONSERVATION.
+           IF WS-PG-AC + WS-PG-PT NOT = WS-PG-GRAND
+               MOVE "N" TO WS-CONSERVATION-PASS
+               SET IACR-RPT-CONSERVATION-WARN TO TRUE
+           END-IF.
+
+       WRITE-REPORT.
+           OPEN OUTPUT IACR-REPORT-FILE
+           IF WS-FS-RPT NOT = "00"
+               SET IACR-RPT-IO-FAIL TO TRUE
+               EXIT PARAGRAPH
+           END-IF
+           MOVE "=== IACR Daily Summary Report ===" TO IACR-RPT-OUT-LINE
+           WRITE IACR-RPT-OUT-LINE
+           STRING "Business date: " HV-BUSINESS-DATE
+                  DELIMITED BY SIZE INTO IACR-RPT-OUT-LINE
+           WRITE IACR-RPT-OUT-LINE
+           STRING "AC count:     " WS-PG-AC
+                  DELIMITED BY SIZE INTO IACR-RPT-OUT-LINE
+           WRITE IACR-RPT-OUT-LINE
+           STRING "PT count:     " WS-PG-PT
+                  DELIMITED BY SIZE INTO IACR-RPT-OUT-LINE
+           WRITE IACR-RPT-OUT-LINE
+           STRING "Grand total:  " WS-PG-GRAND
+                  DELIMITED BY SIZE INTO IACR-RPT-OUT-LINE
+           WRITE IACR-RPT-OUT-LINE
+           STRING "Conservation: " WS-CONSERVATION-PASS
+                  DELIMITED BY SIZE INTO IACR-RPT-OUT-LINE
+           WRITE IACR-RPT-OUT-LINE
+           CLOSE IACR-REPORT-FILE.
+
+       POPULATE-OUTPUT.
+           MOVE WS-PG-AC    TO IACR-RPT-AC-COUNT
+           MOVE WS-PG-PT    TO IACR-RPT-PT-COUNT
+           MOVE WS-PG-GRAND TO IACR-RPT-GRAND-TOTAL
+           MOVE WS-PG-GRAND TO IACR-RPT-TOTAL-ACCRUALS
+           MOVE WS-CONSERVATION-PASS TO IACR-RPT-CONSERVATION-PASS
+           MOVE 3 TO IACR-RPT-PRODUCTS-REPORTED.
+
+       CLEANUP-AND-EXIT.
+           IF WS-CONNECTED
+               EXEC SQL DISCONNECT ALL END-EXEC
+               MOVE "N" TO WS-CONN-FLAG
+           END-IF.
+
+       END PROGRAM IACR-REPORT-SUMMARY.

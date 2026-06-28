@@ -1,0 +1,2 @@
+       FD  TXN-READY-D-TEMP-FILE.
+       01  TXN-READY-D-TEMP-REC         PIC X(600).

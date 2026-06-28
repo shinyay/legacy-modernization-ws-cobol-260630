@@ -1,0 +1,11 @@
+[Unit]
+Description=PRACTICE BANK Monthly Batch Trigger (= 14-IPST + 21 partition rollover)
+Documentation=file:///opt/practice-bank/docs/operations/OPERATIONS.md
+
+[Timer]
+OnCalendar=*-*-01 02:00:00 Asia/Tokyo
+Persistent=true
+Unit=practice-bank-batch-monthly.service
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,2 @@
+       FD  TXN-RECON-DEFER-FILE.
+       01  TXN-RECON-DEFER-REC          PIC X(600).

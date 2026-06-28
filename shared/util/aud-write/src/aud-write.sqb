@@ -1,0 +1,388 @@
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. AUD-WRITE.
+
+       ENVIRONMENT DIVISION.
+
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+
+       01  AW-INIT-FLAG               PIC X VALUE 'N'.
+           88  AW-INITIALIZED           VALUE 'Y'.
+           88  AW-NOT-INITIALIZED       VALUE 'N'.
+
+       01  AW-CONN-FLAG               PIC X VALUE 'N'.
+           88  AW-CONNECTED             VALUE 'Y'.
+
+       EXEC SQL BEGIN DECLARE SECTION END-EXEC.
+       01  AW-DB-NAME                 PIC X(80).
+       01  AW-DB-USER                 PIC X(32).
+       01  AW-DB-PASS                 PIC X(32).
+       01  AW-INS-SUBSYSTEM           PIC X(30).
+       01  AW-INS-ACTION              PIC X(50).
+       01  AW-INS-ACTOR               PIC X(30).
+       01  AW-INS-TARGET-TYPE         PIC X(20).
+       01  AW-INS-TARGET-ID           PIC X(20).
+       01  AW-INS-PAYLOAD             PIC X(2000).
+       01  AW-INS-SEVERITY            PIC X(1).
+       01  AW-INS-BUSINESS-DATE       PIC X(10).
+       01  AW-INS-EVENT-KEY           PIC X(80).
+       01  AW-VERIFY-EXISTS           PIC S9(4) COMP-3.
+       EXEC SQL END DECLARE SECTION END-EXEC.
+
+       EXEC SQL INCLUDE sqlca END-EXEC.
+
+       01  AW-VALIDATE-RC             PIC 9.
+       01  AW-ERR-MSG                 PIC X(80).
+       01  AW-ESC-PAYLOAD             PIC X(2200).
+       01  AW-SQLCODE-DISP            PIC -ZZZZZZZ9.
+       01  AW-SAVED-SQLCODE           PIC S9(9) COMP-5.
+       01  AW-SAVED-SQLERRMC          PIC X(70).
+       01  AW-SAVED-SQLSTATE          PIC X(5).
+       01  AW-START-CD                PIC X(21).
+       01  AW-END-CD                  PIC X(21).
+       01  AW-START-MS                PIC 9(15).
+       01  AW-END-MS                  PIC 9(15).
+       01  AW-LATENCY-MS              PIC 9(8).
+       01  AW-SLOW-THRESHOLD-MS       PIC 9(8) VALUE 100.
+
+       01  AW-F46-RETRY-RC            PIC S9(9) COMP-5 VALUE 0.
+
+       01  AW-ENV-VAL                 PIC X(80).
+
+       COPY "shared-log-api.cpy".
+
+       01  AW-ESC-IDX                 PIC 9(5).
+       01  AW-ESC-OUTPOS              PIC 9(5).
+       01  AW-CUR-CHAR                PIC X.
+       01  AW-PAYLOAD-LEN             PIC 9(5).
+       01  AW-HEX-DIGIT               PIC X(16).
+       01  AW-ASCII-NUM               PIC 9(3).
+       01  AW-NIBBLE-HI               PIC 9.
+       01  AW-NIBBLE-LO               PIC 9.
+
+       LINKAGE SECTION.
+       COPY "aud-write-api.cpy".
+
+       PROCEDURE DIVISION USING WS-AUD-ROW WS-AUD-RC.
+       MAIN-LOGIC.
+           IF AW-NOT-INITIALIZED THEN
+               PERFORM AW-INIT
+           END-IF.
+
+           MOVE 0 TO WS-AUD-RC.
+           PERFORM AW-VALIDATE-INPUT.
+           IF AW-VALIDATE-RC = 8 THEN
+               MOVE 8 TO WS-AUD-RC
+               PERFORM AW-LOG-VALIDATION-ERROR
+               GOBACK
+           END-IF.
+
+           PERFORM AW-ESCAPE-PAYLOAD.
+           PERFORM AW-BUILD-INSERT.
+           PERFORM AW-EXEC-INSERT.
+
+           GOBACK.
+
+       AW-INIT.
+           MOVE 'Y' TO AW-INIT-FLAG.
+
+           MOVE SPACES TO AW-DB-NAME.
+           STRING
+               "banking@"      DELIMITED BY SIZE
+               "postgres:5432" DELIMITED BY SIZE
+               INTO AW-DB-NAME
+           END-STRING.
+
+           ACCEPT AW-ENV-VAL FROM ENVIRONMENT 'PGHOST'.
+           IF AW-ENV-VAL NOT = SPACES THEN
+               MOVE SPACES TO AW-DB-NAME
+               STRING
+                   "banking@"  DELIMITED BY SIZE
+                   FUNCTION TRIM(AW-ENV-VAL) DELIMITED BY SIZE
+                   ":5432"     DELIMITED BY SIZE
+                   INTO AW-DB-NAME
+               END-STRING
+           END-IF.
+
+           MOVE "cobol" TO AW-DB-USER.
+           MOVE "cobol" TO AW-DB-PASS.
+
+           ACCEPT AW-ENV-VAL FROM ENVIRONMENT 'PGUSER'.
+           IF AW-ENV-VAL NOT = SPACES THEN
+               MOVE AW-ENV-VAL(1:32) TO AW-DB-USER
+           END-IF.
+
+           ACCEPT AW-ENV-VAL FROM ENVIRONMENT 'PGPASSWORD'.
+           IF AW-ENV-VAL NOT = SPACES THEN
+               MOVE AW-ENV-VAL(1:32) TO AW-DB-PASS
+           END-IF.
+
+           EXEC SQL
+               CONNECT :AW-DB-USER IDENTIFIED BY :AW-DB-PASS
+                   USING :AW-DB-NAME
+           END-EXEC.
+
+           IF SQLCODE NOT = 0 THEN
+               DISPLAY "[AUD-WRITE] AW-INIT CONNECT failed sqlcode="
+                       SQLCODE UPON SYSERR
+               MOVE 'N' TO AW-CONN-FLAG
+           ELSE
+               MOVE 'Y' TO AW-CONN-FLAG
+           END-IF.
+
+       AW-VALIDATE-INPUT.
+           MOVE 0 TO AW-VALIDATE-RC.
+           MOVE SPACES TO AW-ERR-MSG.
+
+           EVALUATE WS-AUD-SEVERITY
+               WHEN 'I'
+               WHEN 'W'
+               WHEN 'E'
+               WHEN 'C'
+                   CONTINUE
+               WHEN OTHER
+                   MOVE 8 TO AW-VALIDATE-RC
+                   MOVE "Invalid severity" TO AW-ERR-MSG
+           END-EVALUATE.
+
+           IF AW-VALIDATE-RC = 0
+              AND WS-AUD-SUBSYSTEM = SPACES THEN
+               MOVE 8 TO AW-VALIDATE-RC
+               MOVE "Empty subsystem" TO AW-ERR-MSG
+           END-IF.
+
+           IF AW-VALIDATE-RC = 0
+              AND WS-AUD-ACTION = SPACES THEN
+               MOVE 8 TO AW-VALIDATE-RC
+               MOVE "Empty action" TO AW-ERR-MSG
+           END-IF.
+
+           IF AW-VALIDATE-RC = 0 THEN
+               IF WS-AUD-BUSINESS-DATE < 19700101
+                  OR WS-AUD-BUSINESS-DATE > 99991231 THEN
+                   MOVE 8 TO AW-VALIDATE-RC
+                   MOVE "Invalid business_date" TO AW-ERR-MSG
+               END-IF
+           END-IF.
+
+       AW-ESCAPE-PAYLOAD.
+           IF WS-AUD-PAYLOAD-JSON = SPACES THEN
+               MOVE "{}" TO AW-ESC-PAYLOAD
+           ELSE
+               MOVE WS-AUD-PAYLOAD-JSON TO AW-ESC-PAYLOAD
+           END-IF.
+
+       AW-BUILD-INSERT.
+           MOVE WS-AUD-SUBSYSTEM      TO AW-INS-SUBSYSTEM.
+           MOVE WS-AUD-ACTION         TO AW-INS-ACTION.
+           MOVE WS-AUD-ACTOR          TO AW-INS-ACTOR.
+           MOVE WS-AUD-TARGET-TYPE    TO AW-INS-TARGET-TYPE.
+           MOVE WS-AUD-TARGET-ID      TO AW-INS-TARGET-ID.
+           MOVE AW-ESC-PAYLOAD        TO AW-INS-PAYLOAD.
+           MOVE WS-AUD-SEVERITY       TO AW-INS-SEVERITY.
+           MOVE WS-AUD-EVENT-KEY      TO AW-INS-EVENT-KEY.
+           STRING
+               WS-AUD-BUSINESS-DATE(1:4) DELIMITED BY SIZE
+               "-"                       DELIMITED BY SIZE
+               WS-AUD-BUSINESS-DATE(5:2) DELIMITED BY SIZE
+               "-"                       DELIMITED BY SIZE
+               WS-AUD-BUSINESS-DATE(7:2) DELIMITED BY SIZE
+               INTO AW-INS-BUSINESS-DATE
+           END-STRING.
+
+       AW-EXEC-INSERT.
+           MOVE FUNCTION CURRENT-DATE TO AW-START-CD.
+
+           PERFORM AW-DO-RAW-INSERT-AND-COMMIT.
+
+           IF AW-SAVED-SQLCODE = -220 THEN
+               PERFORM AW-F46-RECONNECT
+               IF AW-INITIALIZED THEN
+                   PERFORM AW-DO-RAW-INSERT-AND-COMMIT
+                   PERFORM AW-LOG-F46-RETRY-RESULT
+               END-IF
+           END-IF.
+
+           MOVE AW-SAVED-SQLCODE TO SQLCODE.
+           MOVE AW-SAVED-SQLERRMC TO SQLERRMC.
+
+           MOVE FUNCTION CURRENT-DATE TO AW-END-CD.
+
+           PERFORM AW-CLASSIFY-ERROR.
+           PERFORM AW-CHECK-SLOW.
+
+       AW-DO-RAW-INSERT-AND-COMMIT.
+           EXEC SQL
+               INSERT INTO audit_log (
+                   audit_id,
+                   business_date,
+                   system_ts,
+                   subsystem,
+                   action,
+                   actor,
+                   target_type,
+                   target_id,
+                   payload_json,
+                   severity,
+                   schema_version,
+                   event_key
+               ) VALUES (
+                   nextval('audit_id_seq'),
+                   CAST(:AW-INS-BUSINESS-DATE AS date),
+                   NOW(),
+                   :AW-INS-SUBSYSTEM,
+                   :AW-INS-ACTION,
+                   :AW-INS-ACTOR,
+                   :AW-INS-TARGET-TYPE,
+                   :AW-INS-TARGET-ID,
+                   CAST(:AW-INS-PAYLOAD AS jsonb),
+                   :AW-INS-SEVERITY,
+                   '1.0',
+                   NULLIF(TRIM(:AW-INS-EVENT-KEY), '')
+               )
+           END-EXEC.
+
+           MOVE SQLCODE TO AW-SAVED-SQLCODE.
+           MOVE SQLERRMC TO AW-SAVED-SQLERRMC.
+           MOVE SQLSTATE TO AW-SAVED-SQLSTATE.
+
+           IF AW-SAVED-SQLCODE = 0 THEN
+               EXEC SQL COMMIT END-EXEC
+               IF SQLCODE NOT = 0 AND SQLCODE NOT = 100
+                   MOVE SQLCODE TO AW-SAVED-SQLCODE
+                   STRING "COMMIT failed sqlcode="
+                          SQLCODE " action="
+                          WS-AUD-ACTION
+                          DELIMITED BY SIZE
+                          INTO AW-SAVED-SQLERRMC
+               END-IF
+           ELSE
+               IF AW-SAVED-SQLSTATE = "23505" AND
+                  FUNCTION TRIM(WS-AUD-EVENT-KEY) NOT = SPACES
+                   PERFORM AW-VERIFY-IDEMPOTENT
+               ELSE
+                   EXEC SQL ROLLBACK END-EXEC
+               END-IF
+           END-IF.
+
+        AW-VERIFY-IDEMPOTENT.
+           EXEC SQL ROLLBACK END-EXEC.
+           MOVE 0 TO AW-VERIFY-EXISTS.
+           EXEC SQL
+               SELECT 1 INTO :AW-VERIFY-EXISTS
+                 FROM audit_log
+                WHERE business_date =
+                      CAST(:AW-INS-BUSINESS-DATE AS date)
+                  AND event_key = TRIM(:AW-INS-EVENT-KEY)
+                LIMIT 1
+           END-EXEC.
+           IF SQLCODE = 0 THEN
+               MOVE 0 TO AW-SAVED-SQLCODE
+               MOVE SPACES TO AW-SAVED-SQLERRMC
+           END-IF.
+           EXEC SQL ROLLBACK END-EXEC.
+
+       AW-F46-RECONNECT.
+           EXEC SQL DISCONNECT ALL END-EXEC.
+           MOVE 'N' TO AW-INIT-FLAG.
+           PERFORM AW-INIT.
+
+       AW-LOG-F46-RETRY-RESULT.
+           MOVE "shared/util/aud-write" TO WS-LOG-SUBSYSTEM.
+           IF AW-SAVED-SQLCODE = 0
+               MOVE "INFO " TO WS-LOG-LEVEL
+               STRING
+                   "AUD-WRITE F-46 retry OK action="
+                                                DELIMITED BY SIZE
+                   FUNCTION TRIM(WS-AUD-ACTION)
+                                                DELIMITED BY SIZE
+                   INTO WS-LOG-MESSAGE
+               END-STRING
+           ELSE
+               MOVE AW-SAVED-SQLCODE TO AW-SQLCODE-DISP
+               MOVE "ERROR" TO WS-LOG-LEVEL
+               STRING
+                   "AUD-WRITE F-46 retry FAILED sqlcode="
+                                                DELIMITED BY SIZE
+                   FUNCTION TRIM(AW-SQLCODE-DISP)
+                                                DELIMITED BY SIZE
+                   " action="                   DELIMITED BY SIZE
+                   FUNCTION TRIM(WS-AUD-ACTION)
+                                                DELIMITED BY SIZE
+                   INTO WS-LOG-MESSAGE
+               END-STRING
+           END-IF.
+           CALL "SHARED-LOG" USING WS-LOG-MSG WS-LOG-RC.
+
+       AW-CLASSIFY-ERROR.
+           EVALUATE TRUE
+               WHEN SQLCODE = 0
+                   MOVE 0 TO WS-AUD-RC
+               WHEN SQLCODE = -53300
+                   MOVE 2 TO WS-AUD-RC
+                   PERFORM AW-LOG-FAILURE-WARN
+               WHEN SQLCODE = -54000
+                   MOVE 2 TO WS-AUD-RC
+                   PERFORM AW-LOG-FAILURE-WARN
+               WHEN SQLCODE < 0
+                   MOVE 8 TO WS-AUD-RC
+                   PERFORM AW-LOG-FAILURE-ERROR
+               WHEN SQLCODE > 0 AND SQLCODE NOT = 100
+                   MOVE 2 TO WS-AUD-RC
+                   PERFORM AW-LOG-FAILURE-WARN
+           END-EVALUATE.
+
+       AW-LOG-FAILURE-WARN.
+           MOVE SQLCODE TO AW-SQLCODE-DISP.
+           MOVE "shared/util/aud-write" TO WS-LOG-SUBSYSTEM.
+           MOVE "WARN " TO WS-LOG-LEVEL.
+           STRING
+               "AUD-WRITE INSERT transient sqlcode=" DELIMITED BY SIZE
+               FUNCTION TRIM(AW-SQLCODE-DISP)       DELIMITED BY SIZE
+               " subsystem="                        DELIMITED BY SIZE
+               FUNCTION TRIM(WS-AUD-SUBSYSTEM)      DELIMITED BY SIZE
+               " action="                           DELIMITED BY SIZE
+               FUNCTION TRIM(WS-AUD-ACTION)         DELIMITED BY SIZE
+               INTO WS-LOG-MESSAGE
+           END-STRING.
+           CALL "SHARED-LOG" USING WS-LOG-MSG WS-LOG-RC.
+
+       AW-LOG-FAILURE-ERROR.
+           MOVE SQLCODE TO AW-SQLCODE-DISP.
+           MOVE "shared/util/aud-write" TO WS-LOG-SUBSYSTEM.
+           MOVE "ERROR" TO WS-LOG-LEVEL.
+           STRING
+               "AUD-WRITE INSERT FATAL sqlcode=" DELIMITED BY SIZE
+               FUNCTION TRIM(AW-SQLCODE-DISP)   DELIMITED BY SIZE
+               " errm="                         DELIMITED BY SIZE
+               SQLERRMC                         DELIMITED BY SIZE
+               " subsystem="                    DELIMITED BY SIZE
+               FUNCTION TRIM(WS-AUD-SUBSYSTEM)  DELIMITED BY SIZE
+               " action="                       DELIMITED BY SIZE
+               FUNCTION TRIM(WS-AUD-ACTION)     DELIMITED BY SIZE
+               INTO WS-LOG-MESSAGE
+           END-STRING.
+           CALL "SHARED-LOG" USING WS-LOG-MSG WS-LOG-RC.
+
+       AW-LOG-VALIDATION-ERROR.
+           MOVE "shared/util/aud-write" TO WS-LOG-SUBSYSTEM.
+           MOVE "ERROR" TO WS-LOG-LEVEL.
+           STRING
+               "AUD-WRITE validation rejected: " DELIMITED BY SIZE
+               FUNCTION TRIM(AW-ERR-MSG)         DELIMITED BY SIZE
+               " sev="                           DELIMITED BY SIZE
+               WS-AUD-SEVERITY                   DELIMITED BY SIZE
+               " subsystem="                     DELIMITED BY SIZE
+               FUNCTION TRIM(WS-AUD-SUBSYSTEM)   DELIMITED BY SIZE
+               INTO WS-LOG-MESSAGE
+           END-STRING.
+           CALL "SHARED-LOG" USING WS-LOG-MSG WS-LOG-RC.
+
+       AW-CHECK-SLOW.
+           CONTINUE.
+
+       AW-FINALIZE.
+           IF AW-CONNECTED THEN
+               EXEC SQL DISCONNECT ALL END-EXEC
+               MOVE 'N' TO AW-CONN-FLAG
+           END-IF.

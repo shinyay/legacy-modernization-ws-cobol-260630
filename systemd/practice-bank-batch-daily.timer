@@ -1,0 +1,11 @@
+[Unit]
+Description=PRACTICE BANK Daily Batch Trigger (= per 22-ops §4.4)
+Documentation=file:///opt/practice-bank/docs/operations/OPERATIONS.md
+
+[Timer]
+OnCalendar=*-*-* 23:00:00 Asia/Tokyo
+Persistent=true
+Unit=practice-bank-batch-daily.service
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,11 @@
+[Unit]
+Description=PRACTICE BANK Monthly Auto-debit Retry Trigger (= 15-AD)
+Documentation=file:///opt/practice-bank/docs/operations/OPERATIONS.md
+
+[Timer]
+OnCalendar=*-*-15 04:00:00 Asia/Tokyo
+Persistent=true
+Unit=practice-bank-autodebit-retry.service
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,94 @@
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. ACCT-UPDATE-DORMANCY-DATE.
+       ENVIRONMENT DIVISION.
+       INPUT-OUTPUT SECTION.
+       FILE-CONTROL.
+           SELECT ACCOUNT-FILE
+               ASSIGN TO "/workspace/subsystems/08-account/data/account.idx"
+               ORGANIZATION IS INDEXED
+               ACCESS MODE IS RANDOM
+               RECORD KEY IS ACCT-REC-NUMBER
+               ALTERNATE RECORD KEY IS ACCT-REC-CUST-ID WITH DUPLICATES
+               FILE STATUS IS WS-FS.
+
+       DATA DIVISION.
+       FILE SECTION.
+       COPY "fd-account.cpy".
+
+       WORKING-STORAGE SECTION.
+       01  WS-FS              PIC X(2).
+       01  WS-CURRENT-CD      PIC X(21).
+       01  WS-CD-PARTS REDEFINES WS-CURRENT-CD.
+           05  WS-CD-YYYY     PIC 9(4).
+           05  WS-CD-MM       PIC 9(2).
+           05  WS-CD-DD       PIC 9(2).
+           05  WS-CD-HH       PIC 9(2).
+           05  WS-CD-MI       PIC 9(2).
+           05  WS-CD-SS       PIC 9(2).
+       01  WS-CURRENT-TS      PIC 9(14).
+
+       LINKAGE SECTION.
+       COPY "acct-api.cpy".
+
+       PROCEDURE DIVISION USING ACCT-UPDATE-DORMANCY-INPUT
+                                ACCT-UPDATE-DORMANCY-OUTPUT
+                                ACCT-UPDATE-DORMANCY-STATUS.
+       MAIN-LOGIC.
+           MOVE "00" TO ACCT-UPDATE-DORMANCY-STATUS
+           MOVE ZERO TO UPDATE-DORMANCY-PREV-DATE
+           MOVE "N" TO UPDATE-DORMANCY-WAS-NOOP
+
+           IF UPDATE-DORMANCY-NEW-DATE < 19000101
+              OR UPDATE-DORMANCY-NEW-DATE > 99991231
+               MOVE "08" TO ACCT-UPDATE-DORMANCY-STATUS GOBACK
+           END-IF
+
+           OPEN I-O ACCOUNT-FILE
+           IF WS-FS NOT = "00"
+               MOVE "12" TO ACCT-UPDATE-DORMANCY-STATUS GOBACK
+           END-IF
+
+           MOVE UPDATE-DORMANCY-ACCT-NUMBER TO ACCT-REC-NUMBER
+           READ ACCOUNT-FILE
+               INVALID KEY
+                   MOVE "04" TO ACCT-UPDATE-DORMANCY-STATUS
+                   CLOSE ACCOUNT-FILE GOBACK
+           END-READ
+
+           IF ACCT-REC-STATUS NOT = "A" AND ACCT-REC-STATUS NOT = "D"
+               MOVE "08" TO ACCT-UPDATE-DORMANCY-STATUS
+               CLOSE ACCOUNT-FILE GOBACK
+           END-IF
+
+           MOVE ACCT-REC-DORMANCY-DATE TO UPDATE-DORMANCY-PREV-DATE
+
+           IF UPDATE-DORMANCY-NEW-DATE < ACCT-REC-DORMANCY-DATE
+               MOVE "08" TO ACCT-UPDATE-DORMANCY-STATUS
+               CLOSE ACCOUNT-FILE GOBACK
+           END-IF
+
+           IF UPDATE-DORMANCY-NEW-DATE = ACCT-REC-DORMANCY-DATE
+               MOVE "Y" TO UPDATE-DORMANCY-WAS-NOOP
+               MOVE "00" TO ACCT-UPDATE-DORMANCY-STATUS
+               CLOSE ACCOUNT-FILE GOBACK
+           END-IF
+
+           MOVE FUNCTION CURRENT-DATE TO WS-CURRENT-CD
+           STRING WS-CD-YYYY WS-CD-MM WS-CD-DD
+                  WS-CD-HH WS-CD-MI WS-CD-SS
+                  DELIMITED BY SIZE
+                  INTO WS-CURRENT-TS
+           END-STRING
+
+           MOVE UPDATE-DORMANCY-NEW-DATE TO ACCT-REC-DORMANCY-DATE
+           MOVE WS-CURRENT-TS TO ACCT-REC-UPDATED-TS
+           REWRITE ACCT-REC
+           IF WS-FS NOT = "00"
+               MOVE "12" TO ACCT-UPDATE-DORMANCY-STATUS
+               CLOSE ACCOUNT-FILE GOBACK
+           END-IF
+
+           MOVE "N" TO UPDATE-DORMANCY-WAS-NOOP
+           MOVE "00" TO ACCT-UPDATE-DORMANCY-STATUS
+           CLOSE ACCOUNT-FILE
+           GOBACK.

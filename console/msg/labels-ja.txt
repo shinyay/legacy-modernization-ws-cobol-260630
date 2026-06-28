@@ -1,0 +1,164 @@
+APPTITLE=PRACTICE BANK 統合オペレータ・コンソール
+MENUHEAD=業務トランザクションコードを入力してください
+M_BMON=日次バッチ・パイプライン モニタ
+M_JRNL=取引仕訳ジャーナル(複式記帳)
+M_ACCT=口座照会・残高
+M_CUST=顧客照会・名寄せ
+M_HIST=取引履歴 (口座元帳)
+M_AUDT=監査証跡ビュー
+TRANPROMPT=Tran ===>
+PF_MENU=業務コード入力後 ENTER  /  EXIT=終了
+PF_BMON=ENTER で戻る
+PF_JRNL=N=次頁 P=前頁 B=戻る
+BMONTITLE=日次バッチ パイプライン・モニタ
+JRNLTITLE=取引仕訳ジャーナル (複式記帳)
+COL_STEP=STEP
+COL_BIZ=業務
+COL_STATE=状態
+COL_CNT=処理件数
+ST_WAIT=[ 待機 ]
+ST_RUN=[ 実行中 ]
+ST_DONE=[ 完了 ]
+ST_FAIL=[ 失敗 ]
+S10=取引検証 (validate)
+S11=整列・前日繰越併合 (sort/merge)
+S12=記帳 (post -> PostgreSQL)
+S13=利息計算 (interest)
+S16=手数料 (fee)
+S17=明細生成 (statement)
+DRLABEL=借方合計 DR
+CRLABEL=貸方合計 CR
+BALOK=[ 借貸一致 OK ]
+BALNG=[ 借貸不一致 NG ]
+READY=[ READY ]
+RUNNING=[ POSTING... ]
+DONEMSG=[ バッチ完了 ]
+JC_TXN=取引ID
+JC_CAT=区分
+JC_DR=借方 口座
+JC_CR=貸方 口座
+JC_AMT=金額
+CAT10=入金
+CAT20=出金
+CAT30=振替
+CAT40=送金
+CATRV=取消
+INVALIDTRAN=無効なトランザクションコードです
+NOTIMPL=この業務は未実装です (MVP: BMON / JRNL)
+PAGEOF=頁
+PRESSENTER=ENTER で続行
+KEYPROMPT=照会キー ===>
+CMDPROMPT=コマンド ===>
+NOTFOUND=該当データが見つかりません
+PF_INQ=キー入力+ENTER=照会  /  B=戻る
+PF_PAGE=N=次頁 P=前頁 B=戻る  /  キー+ENTER
+ACCTTITLE=口座照会・残高
+A_ANO=口座番号
+A_NAME=口座名義
+A_BRANCH=支店
+A_PROD=商品
+A_STATUS=状態
+A_CUST=顧客ID
+A_OPENED=開設日
+A_DORM=休眠日
+A_BAL=残高
+A_AVAIL=可用額
+A_HOLD=保留額
+A_TXNCNT=取引件数
+CUSTTITLE=顧客照会・名寄せ
+C_NAME=氏名
+C_KANA=カナ
+C_STATUS=状態
+C_TIER=ティア
+C_PHONE=電話
+C_ADDR=住所
+C_ACCTS=保有口座一覧
+C_TOTAL=残高合計
+HISTTITLE=取引履歴 (口座元帳)
+H_DATE=営業日
+H_TXN=取引ID
+H_ROLE=借貸
+H_AMT=金額
+H_BAL=現在残高
+AUDTTITLE=監査証跡タイムライン
+AU_TS=日時
+AU_SS=サブシステム
+AU_ACT=アクション
+AU_SEV=重大度
+AU_TGT=対象
+M_REVS=取引取消（逆仕訳）
+REVSTITLE=取引取消 (REVERSAL)
+PF_REVS=取消ID+ENTER  R=理由  Y/N=確認  B=戻る
+R_TXN=取消対象ID
+R_BD=取引日
+R_CAT=区分
+R_AMT=金額(円)
+R_STAT=状態
+R_OPER=オペレータ
+R_REASON=取消理由
+R_CONFIRM=この取引を取消します。よろしいですか? (Y/N) ===>
+R_READONLY=書込無効(read-only)。CONSOLE_ALLOW_WRITE=YES で有効化
+R_BADTXN=取引IDは18桁の数字で入力してください
+R_NOTFOUND=該当取引が見つかりません
+R_NOTREVERS=この取引は取消できません(状態がPT/SE以外)
+R_CANCELLED=取消を中止しました
+R_OK=取消完了 新RV取引ID=
+R_ERR04=取消失敗: 対象取引が見つかりません(04)
+R_ERR08=取消失敗: 取消不可/二重取消/残高不足(08)
+R_ERR12=取消失敗: 入出力エラー(12)
+R_ERRTO=取消の状態不明: audit/journal/log を確認してください
+R_ERRGATE=書込が無効です。CONSOLE_ALLOW_WRITE=YES が必要です
+R_BADROW=行選択が不正です
+M_POST=取引記帳（入金/出金/振替）
+POSTTITLE=取引記帳 (POST)
+PF_POST=A=明細追加 G=記帳実行 C=クリア B=戻る
+P_BDATE=記帳営業日
+P_CATQ=区分 D=入金 W=出金 T=振替 ===>
+P_ACCTQ=口座番号 ===>
+P_PAYEEQ=相手口座(振替) ===>
+P_AMTQ=金額(円) ===>
+P_HDR=区分  口座            相手口座          金額
+P_CONFIRM=この明細を記帳します。よろしいですか? (Y/N) ===>
+P_READONLY=書込無効。CONSOLE_ALLOW_WRITE=YES で有効化
+P_EMPTY=明細がありません(A で追加)
+P_FULL=明細は最大10件です
+P_BADCAT=区分は D/W/T で入力してください
+P_BADACCT=口座が存在しないか有効ではありません
+P_SYSACCT=システム勘定には記帳できません
+P_SELFXFER=振替の出金元と入金先が同一です
+P_BADAMT=金額は1以上で入力してください
+P_ADDED=明細を追加しました
+P_CLEARED=明細をクリアしました
+P_CANCELLED=記帳を中止しました
+P_OK=記帳完了 件数
+P_ALREADY=当該営業日は記帳済みです(リセットで再実行)
+P_ALLREJECT=全件が検証で却下されました
+P_ERR=記帳に失敗しました
+M_BRUN=バッチ実行モニタ
+BRUNTITLE=バッチ実行モニタ (BRUN)
+BR_BID=バッチID
+BR_BD=営業日
+BR_STATUS=状
+BR_STEP=ステップ
+BR_TXNS=記帳
+BR_ERRS=誤
+BR_START=開始
+BR_EMPTY=バッチ実行履歴がありません
+M_SCEN=シナリオ実行(#42 recon / #43 並行)
+SCENTITLE=シナリオ実行 (SCEN)
+PF_SCEN=R=recon C=conc S=smoke B=戻る
+SC_HDR=シナリオを選択してください:
+SC_DESC_RECON=R  recon (#42) マージ重複排除(前日繰越)パス
+SC_DESC_CONC=C  conc  (#43) FOR UPDATE + C1 並行記帳安全性
+SC_DESC_SMOKE=S  smoke      クリーン100件 E2E パイプライン
+SC_RUNNING=実行中… お待ちください
+SC_OK=[ 合格 ]
+SC_FAIL=[ 不合格 ]
+SC_SCN=シナリオ
+SC_ELAPSED=経過
+SC_GATE=破壊的デモ無効(CONSOLE_ALLOW_DESTRUCTIVE_DEMO_RESET=YES)
+OIA_SYS=PBNK001
+OIA_READY=● READY
+M_THEME=THEM 配色切替(緑/琥珀)
+WATCHING=WATCH
+PF_BRUN=N=次頁 P=前頁 W=監視 B=戻る  /  キー+ENTER

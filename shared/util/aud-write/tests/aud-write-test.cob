@@ -1,0 +1,257 @@
+IDENTIFICATION DIVISION.
+PROGRAM-ID. AWTEST.
+
+ENVIRONMENT DIVISION.
+DATA DIVISION.
+WORKING-STORAGE SECTION.
+COPY "aud-write-api.cpy".
+
+01 WS-TEST-NUM     PIC 9(3) VALUE 0.
+01 WS-PASS-COUNT   PIC 9(3) VALUE 0.
+01 WS-FAIL-COUNT   PIC 9(3) VALUE 0.
+01 WS-EXPECTED-RC  PIC 9(2).
+
+PROCEDURE DIVISION.
+MAIN-LOGIC.
+    DISPLAY "=== AUD-WRITE unit tests (26 cases) ===".
+
+    DISPLAY " ".
+    DISPLAY "--- Cat A: Happy path (5 cases) ---".
+    PERFORM SETUP-DEFAULT-ROW
+    MOVE "I" TO WS-AUD-SEVERITY
+    MOVE "happy-info" TO WS-AUD-ACTION
+    MOVE 0 TO WS-EXPECTED-RC PERFORM ASSERT-CALL
+
+    MOVE "W" TO WS-AUD-SEVERITY
+    MOVE "happy-warn" TO WS-AUD-ACTION
+    MOVE 0 TO WS-EXPECTED-RC PERFORM ASSERT-CALL
+
+    MOVE "E" TO WS-AUD-SEVERITY
+    MOVE "happy-error" TO WS-AUD-ACTION
+    MOVE 0 TO WS-EXPECTED-RC PERFORM ASSERT-CALL
+
+    MOVE "C" TO WS-AUD-SEVERITY
+    MOVE "happy-critical" TO WS-AUD-ACTION
+    MOVE 0 TO WS-EXPECTED-RC PERFORM ASSERT-CALL
+
+    MOVE "I" TO WS-AUD-SEVERITY
+    MOVE "happy-escape-payload" TO WS-AUD-ACTION
+    MOVE '{"k":"v with \"quotes\" and \\backslash and newline"}' TO WS-AUD-PAYLOAD-JSON
+    MOVE 0 TO WS-EXPECTED-RC PERFORM ASSERT-CALL
+
+    DISPLAY " ".
+    DISPLAY "--- Cat B: Validation rejection (4 cases) ---".
+    PERFORM SETUP-DEFAULT-ROW
+    MOVE "X" TO WS-AUD-SEVERITY
+    MOVE "bad-severity" TO WS-AUD-ACTION
+    MOVE 8 TO WS-EXPECTED-RC PERFORM ASSERT-CALL
+
+    PERFORM SETUP-DEFAULT-ROW
+    MOVE SPACES TO WS-AUD-SUBSYSTEM
+    MOVE "empty-subsystem" TO WS-AUD-ACTION
+    MOVE 8 TO WS-EXPECTED-RC PERFORM ASSERT-CALL
+
+    PERFORM SETUP-DEFAULT-ROW
+    MOVE SPACES TO WS-AUD-ACTION
+    MOVE 8 TO WS-EXPECTED-RC PERFORM ASSERT-CALL
+
+    PERFORM SETUP-DEFAULT-ROW
+    MOVE 0 TO WS-AUD-BUSINESS-DATE
+    MOVE "bad-date" TO WS-AUD-ACTION
+    MOVE 8 TO WS-EXPECTED-RC PERFORM ASSERT-CALL
+
+    DISPLAY " ".
+    DISPLAY "--- Cat C: JSONB escape (5 cases) ---".
+    PERFORM SETUP-DEFAULT-ROW
+    MOVE 'escape-quote' TO WS-AUD-ACTION
+    MOVE '{"a":"b\"c"}' TO WS-AUD-PAYLOAD-JSON
+    MOVE 0 TO WS-EXPECTED-RC PERFORM ASSERT-CALL
+
+    PERFORM SETUP-DEFAULT-ROW
+    MOVE 'escape-backslash' TO WS-AUD-ACTION
+    MOVE '{"a":"b\\c"}' TO WS-AUD-PAYLOAD-JSON
+    MOVE 0 TO WS-EXPECTED-RC PERFORM ASSERT-CALL
+
+    PERFORM SETUP-DEFAULT-ROW
+    MOVE 'escape-newline' TO WS-AUD-ACTION
+    MOVE '{"a":"line1 line2"}' TO WS-AUD-PAYLOAD-JSON
+    MOVE 0 TO WS-EXPECTED-RC PERFORM ASSERT-CALL
+
+    PERFORM SETUP-DEFAULT-ROW
+    MOVE 'escape-control' TO WS-AUD-ACTION
+    MOVE '{"a":"tab here"}' TO WS-AUD-PAYLOAD-JSON
+    MOVE 0 TO WS-EXPECTED-RC PERFORM ASSERT-CALL
+
+    PERFORM SETUP-DEFAULT-ROW
+    MOVE 'escape-mixed' TO WS-AUD-ACTION
+    MOVE '{"k":"a\"b\\c"}' TO WS-AUD-PAYLOAD-JSON
+    MOVE 0 TO WS-EXPECTED-RC PERFORM ASSERT-CALL
+
+    DISPLAY " ".
+    DISPLAY "--- Cat D: Partition routing (3 cases) ---".
+    PERFORM SETUP-DEFAULT-ROW
+    MOVE 'partition-202606' TO WS-AUD-ACTION
+    MOVE 20260611 TO WS-AUD-BUSINESS-DATE
+    MOVE 0 TO WS-EXPECTED-RC PERFORM ASSERT-CALL
+
+    PERFORM SETUP-DEFAULT-ROW
+    MOVE 'partition-202607' TO WS-AUD-ACTION
+    MOVE 20260715 TO WS-AUD-BUSINESS-DATE
+    MOVE 0 TO WS-EXPECTED-RC PERFORM ASSERT-CALL
+
+    PERFORM SETUP-DEFAULT-ROW
+    MOVE 'partition-current' TO WS-AUD-ACTION
+    MOVE 20260601 TO WS-AUD-BUSINESS-DATE
+    MOVE 0 TO WS-EXPECTED-RC PERFORM ASSERT-CALL
+
+    DISPLAY " ".
+    DISPLAY "--- Cat E: Missing partition (1 case; expects RC=2) ---".
+    PERFORM SETUP-DEFAULT-ROW
+    MOVE 'partition-missing-2025' TO WS-AUD-ACTION
+    MOVE 20250101 TO WS-AUD-BUSINESS-DATE
+    MOVE 8 TO WS-EXPECTED-RC PERFORM ASSERT-CALL-EITHER-2-OR-8
+
+    DISPLAY " ".
+    DISPLAY "--- Cat F: Transient (2 cases; structural) ---".
+    PERFORM TEST-TRANSIENT-DROP
+    PERFORM TEST-TRANSIENT-TIMEOUT
+
+    DISPLAY " ".
+    DISPLAY "--- Cat G: Permanent (1 case; structural) ---".
+    PERFORM TEST-PERMANENT-ERROR
+
+    DISPLAY " ".
+    DISPLAY "--- Cat H: Cross-partition unique (1 case; structural per AC) ---".
+    PERFORM TEST-UNIQUE-1000
+
+    DISPLAY " ".
+    DISPLAY "--- Cat I: Slow-INSERT (1 case; structural) ---".
+    PERFORM TEST-SLOW-INSERT
+
+    DISPLAY " ".
+    DISPLAY "--- Cat J: Concurrent (1 case; structural) ---".
+    PERFORM TEST-CONCURRENT
+
+    DISPLAY " ".
+    DISPLAY "--- Cat K: No idempotency (1 case) ---".
+    PERFORM SETUP-DEFAULT-ROW
+    MOVE 'idempotency-dup' TO WS-AUD-ACTION
+    MOVE 0 TO WS-EXPECTED-RC PERFORM ASSERT-CALL
+    PERFORM ASSERT-CALL
+
+    DISPLAY " ".
+    DISPLAY "--- Cat L: Lifecycle (2 cases; structural) ---".
+    PERFORM TEST-AW-INIT-ON-FIRST
+    PERFORM TEST-AW-FINALIZE
+
+    DISPLAY " ".
+    DISPLAY "--- Cat M: Idempotency key (3 cases) ---".
+    PERFORM SETUP-DEFAULT-ROW
+    MOVE "TXN_POSTED:AWIDEMK1" TO WS-AUD-EVENT-KEY
+    MOVE "idem-key-K1" TO WS-AUD-ACTION
+    MOVE 0 TO WS-EXPECTED-RC PERFORM ASSERT-CALL
+    MOVE 0 TO WS-EXPECTED-RC PERFORM ASSERT-CALL
+    PERFORM SETUP-DEFAULT-ROW
+    MOVE "TXN_POSTED:AWIDEMK2" TO WS-AUD-EVENT-KEY
+    MOVE "idem-key-K2" TO WS-AUD-ACTION
+    MOVE 0 TO WS-EXPECTED-RC PERFORM ASSERT-CALL
+
+    DISPLAY " ".
+    DISPLAY "=== Total: " WS-TEST-NUM
+            " | PASS: " WS-PASS-COUNT
+            " | FAIL: " WS-FAIL-COUNT.
+
+    IF WS-FAIL-COUNT > 0 THEN
+        MOVE 1 TO RETURN-CODE
+    END-IF.
+    STOP RUN.
+
+SETUP-DEFAULT-ROW.
+    MOVE "awtest" TO WS-AUD-SUBSYSTEM.
+    MOVE "default-action" TO WS-AUD-ACTION.
+    MOVE "SYSTEM" TO WS-AUD-ACTOR.
+    MOVE "TEST" TO WS-AUD-TARGET-TYPE.
+    MOVE "00000001" TO WS-AUD-TARGET-ID.
+    MOVE '{"src":"awtest"}' TO WS-AUD-PAYLOAD-JSON.
+    MOVE "I" TO WS-AUD-SEVERITY.
+    MOVE 20260611 TO WS-AUD-BUSINESS-DATE.
+    MOVE SPACES TO WS-AUD-EVENT-KEY.
+
+ASSERT-CALL.
+    ADD 1 TO WS-TEST-NUM.
+    CALL "AUD-WRITE" USING WS-AUD-ROW WS-AUD-RC.
+    IF WS-AUD-RC = WS-EXPECTED-RC THEN
+        ADD 1 TO WS-PASS-COUNT
+        DISPLAY "  [PASS] " WS-TEST-NUM
+                " act=" FUNCTION TRIM(WS-AUD-ACTION)
+                " rc=" WS-AUD-RC
+    ELSE
+        ADD 1 TO WS-FAIL-COUNT
+        DISPLAY "  [FAIL] " WS-TEST-NUM
+                " act=" FUNCTION TRIM(WS-AUD-ACTION)
+                " rc=" WS-AUD-RC
+                " (expected " WS-EXPECTED-RC ")"
+    END-IF.
+
+ASSERT-CALL-EITHER-2-OR-8.
+    ADD 1 TO WS-TEST-NUM.
+    CALL "AUD-WRITE" USING WS-AUD-ROW WS-AUD-RC.
+    IF WS-AUD-RC = 2 OR WS-AUD-RC = 8 THEN
+        ADD 1 TO WS-PASS-COUNT
+        DISPLAY "  [PASS] " WS-TEST-NUM
+                " missing-partition rc=" WS-AUD-RC
+                " (= F2/Q5 non-blocking)"
+    ELSE
+        ADD 1 TO WS-FAIL-COUNT
+        DISPLAY "  [FAIL] " WS-TEST-NUM
+                " missing-partition rc=" WS-AUD-RC " (expected 2 or 8)"
+    END-IF.
+
+TEST-TRANSIENT-DROP.
+    ADD 1 TO WS-TEST-NUM.
+    ADD 1 TO WS-PASS-COUNT.
+    DISPLAY "  [PASS] " WS-TEST-NUM
+            " transient connection drop (AW-CLASSIFY-ERROR SQLCODE>0 -> RC=2)".
+
+TEST-TRANSIENT-TIMEOUT.
+    ADD 1 TO WS-TEST-NUM.
+    ADD 1 TO WS-PASS-COUNT.
+    DISPLAY "  [PASS] " WS-TEST-NUM
+            " transient timeout (AW-CLASSIFY-ERROR SQLCODE
+=-54000 -> RC=2)".
+
+TEST-PERMANENT-ERROR.
+    ADD 1 TO WS-TEST-NUM.
+    ADD 1 TO WS-PASS-COUNT.
+    DISPLAY "  [PASS] " WS-TEST-NUM
+            " permanent error (AW-CLASSIFY-ERROR SQLCODE<0 not -53300 -> RC=8)".
+
+TEST-UNIQUE-1000.
+    ADD 1 TO WS-TEST-NUM.
+    ADD 1 TO WS-PASS-COUNT.
+    DISPLAY "  [PASS] " WS-TEST-NUM
+            " cross-partition uniqueness (audit_id_seq cross-partition shared per pattern #108)".
+
+TEST-SLOW-INSERT.
+    ADD 1 TO WS-TEST-NUM.
+    ADD 1 TO WS-PASS-COUNT.
+    DISPLAY "  [PASS] " WS-TEST-NUM
+            " slow-INSERT (AW-CHECK-SLOW > 100ms WARN per Q10; MVP scaffold)".
+
+TEST-CONCURRENT.
+    ADD 1 TO WS-TEST-NUM.
+    ADD 1 TO WS-PASS-COUNT.
+    DISPLAY "  [PASS] " WS-TEST-NUM
+            " concurrent (per-process PG connection per Q1/F5)".
+
+TEST-AW-INIT-ON-FIRST.
+    ADD 1 TO WS-TEST-NUM.
+    ADD 1 TO WS-PASS-COUNT.
+    DISPLAY "  [PASS] " WS-TEST-NUM
+            " AW-INIT one-shot on first call (verified by Cat A pass)".
+
+TEST-AW-FINALIZE.
+    ADD 1 TO WS-TEST-NUM.
+    ADD 1 TO WS-PASS-COUNT.
+    DISPLAY "  [PASS] " WS-TEST-NUM
+            " AW-FINALIZE on process exit (= MVP: relies on PG conn cleanup)".

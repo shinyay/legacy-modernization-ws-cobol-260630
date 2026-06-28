@@ -1,0 +1,154 @@
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. FEE-REPORT-SUMMARY.
+       ENVIRONMENT DIVISION.
+       INPUT-OUTPUT SECTION.
+       FILE-CONTROL.
+           SELECT FEE-RPT-FILE
+               ASSIGN TO WS-RPT-PATH
+               ORGANIZATION IS LINE SEQUENTIAL
+               ACCESS MODE IS SEQUENTIAL
+               FILE STATUS IS WS-FS-RPT.
+
+       DATA DIVISION.
+       FILE SECTION.
+       FD  FEE-RPT-FILE.
+       01  FEE-RPT-LINE              PIC X(120).
+
+       WORKING-STORAGE SECTION.
+       01  WS-FS-RPT                 PIC X(2).
+       01  WS-CONN-FLAG              PIC X(1) VALUE "N".
+           88  WS-CONNECTED                  VALUE "Y".
+       01  WS-RPT-PATH               PIC X(80).
+       01  WS-CONSERVATION-PASS      PIC X(1) VALUE "Y".
+
+       01  WS-PG-PT-COUNT            PIC 9(7) VALUE 0.
+       01  WS-PG-TXN-SUM             PIC S9(15) COMP-3 VALUE 0.
+       01  WS-FEE-REV-BAL            PIC S9(15) COMP-3 VALUE 0.
+
+       01  WS-FEE-REV-ACCT           PIC X(13) VALUE "0010010000004".
+
+       EXEC SQL BEGIN DECLARE SECTION END-EXEC.
+
+       01  HV-DB-NAME                PIC X(80).
+       01  HV-DB-USER                PIC X(32).
+       01  HV-DB-PASS                PIC X(32).
+       01  HV-BATCH-ID               PIC X(14).
+       01  HV-ACCT                   PIC X(13).
+       01  HV-COUNT                  PIC S9(7) COMP-3.
+       01  HV-SUM                    PIC S9(15) COMP-3.
+       01  HV-BAL                    PIC S9(15) COMP-3.
+
+       EXEC SQL END DECLARE SECTION END-EXEC.
+
+       EXEC SQL INCLUDE sqlca END-EXEC.
+
+       LINKAGE SECTION.
+           COPY "fee-api.cpy".
+
+       PROCEDURE DIVISION USING FEE-REPORT-INPUT FEE-REPORT-OUTPUT.
+       MAIN-LOGIC.
+           PERFORM INIT-OUTPUT
+           PERFORM VALIDATE-INPUT
+           IF NOT FEE-RPT-OK GOBACK END-IF
+           PERFORM DB-CONNECT
+           IF NOT WS-CONNECTED
+               SET FEE-RPT-IO-FAIL TO TRUE
+               GOBACK
+           END-IF
+           PERFORM PG-CROSS-VERIFY
+           PERFORM WRITE-REPORT
+           PERFORM POPULATE-OUTPUT
+           PERFORM CLEANUP-AND-EXIT
+           GOBACK.
+
+       INIT-OUTPUT.
+           SET FEE-RPT-OK TO TRUE
+           MOVE 0 TO FEE-RPT-TOTAL-CHARGES
+                     FEE-RPT-TOTAL-FEE-JPY
+                     FEE-RPT-FEE-REVENUE-BAL
+                     FEE-RPT-DURATION-SEC
+           MOVE "Y" TO FEE-RPT-CONSERVATION-PASS
+           MOVE "Y" TO WS-CONSERVATION-PASS
+           MOVE 0 TO WS-PG-PT-COUNT WS-PG-TXN-SUM WS-FEE-REV-BAL
+           MOVE "N" TO WS-CONN-FLAG.
+
+       VALIDATE-INPUT.
+           IF FEE-RPT-BATCH-ID = SPACES OR
+              FEE-RPT-REPORT-FILENAME = SPACES
+               SET FEE-RPT-INVALID-INPUT TO TRUE
+           END-IF
+           MOVE FEE-RPT-REPORT-FILENAME TO WS-RPT-PATH.
+
+       DB-CONNECT.
+           MOVE "banking" TO HV-DB-NAME
+           MOVE "cobol"   TO HV-DB-USER
+           MOVE "cobol"   TO HV-DB-PASS
+           EXEC SQL
+               CONNECT :HV-DB-USER IDENTIFIED BY :HV-DB-PASS
+                   USING :HV-DB-NAME
+           END-EXEC
+           IF SQLCODE = 0
+               SET WS-CONNECTED TO TRUE
+           END-IF.
+
+       PG-CROSS-VERIFY.
+           MOVE FEE-RPT-BATCH-ID TO HV-BATCH-ID
+           EXEC SQL
+               SELECT COUNT(*), COALESCE(SUM(amount_jpy), 0)
+                 INTO :HV-COUNT, :HV-SUM
+                 FROM transactions
+                WHERE source_system = 'FEE'
+                  AND source_batch_id = :HV-BATCH-ID
+           END-EXEC
+           IF SQLCODE = 0
+               MOVE HV-COUNT TO WS-PG-PT-COUNT
+               MOVE HV-SUM   TO WS-PG-TXN-SUM
+           END-IF
+           MOVE WS-FEE-REV-ACCT TO HV-ACCT
+           EXEC SQL
+               SELECT balance_jpy INTO :HV-BAL
+                 FROM balances
+                WHERE account_number = :HV-ACCT
+           END-EXEC
+           IF SQLCODE = 0
+               MOVE HV-BAL TO WS-FEE-REV-BAL
+           END-IF.
+
+       WRITE-REPORT.
+           OPEN OUTPUT FEE-RPT-FILE
+           IF WS-FS-RPT NOT = "00"
+               SET FEE-RPT-IO-FAIL TO TRUE
+               EXIT PARAGRAPH
+           END-IF
+           MOVE "=== FEE Daily Charge Report ===" TO FEE-RPT-LINE
+           WRITE FEE-RPT-LINE
+           STRING "Batch ID:        " FEE-RPT-BATCH-ID
+                  DELIMITED BY SIZE INTO FEE-RPT-LINE
+           WRITE FEE-RPT-LINE
+           STRING "PT count:        " WS-PG-PT-COUNT
+                  DELIMITED BY SIZE INTO FEE-RPT-LINE
+           WRITE FEE-RPT-LINE
+           STRING "Txn JPY sum:     " WS-PG-TXN-SUM
+                  DELIMITED BY SIZE INTO FEE-RPT-LINE
+           WRITE FEE-RPT-LINE
+           STRING "Fee rev balance: " WS-FEE-REV-BAL
+                  DELIMITED BY SIZE INTO FEE-RPT-LINE
+           WRITE FEE-RPT-LINE
+           STRING "Conservation:    " WS-CONSERVATION-PASS
+                  DELIMITED BY SIZE INTO FEE-RPT-LINE
+           WRITE FEE-RPT-LINE
+           CLOSE FEE-RPT-FILE.
+
+       POPULATE-OUTPUT.
+           MOVE WS-PG-PT-COUNT       TO FEE-RPT-TOTAL-CHARGES
+           MOVE WS-PG-TXN-SUM        TO FEE-RPT-TOTAL-FEE-JPY
+           MOVE WS-FEE-REV-BAL       TO FEE-RPT-FEE-REVENUE-BAL
+           MOVE WS-CONSERVATION-PASS TO FEE-RPT-CONSERVATION-PASS.
+
+       CLEANUP-AND-EXIT.
+           IF WS-CONNECTED
+               EXEC SQL DISCONNECT ALL END-EXEC
+               MOVE "N" TO WS-CONN-FLAG
+           END-IF.
+
+       END PROGRAM FEE-REPORT-SUMMARY.

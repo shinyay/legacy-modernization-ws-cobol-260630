@@ -1,0 +1,164 @@
+APPTITLE=PRACTICE BANK Integrated Operator Console
+MENUHEAD=Enter a business transaction code
+M_BMON=Daily Batch Pipeline Monitor
+M_JRNL=Transaction Journal (double-entry)
+M_ACCT=Account inquiry / balance
+M_CUST=Customer inquiry / accounts
+M_HIST=Transaction history (ledger)
+M_AUDT=Audit trail viewer
+TRANPROMPT=Tran ===>
+PF_MENU=Type a code then ENTER  /  EXIT=quit
+PF_BMON=ENTER to return
+PF_JRNL=N=next P=prev B=back
+BMONTITLE=Daily Batch Pipeline Monitor
+JRNLTITLE=Transaction Journal (double-entry)
+COL_STEP=STEP
+COL_BIZ=Business function
+COL_STATE=State
+COL_CNT=Count
+ST_WAIT=[ WAIT ]
+ST_RUN=[ RUN  ]
+ST_DONE=[ DONE ]
+ST_FAIL=[ FAIL ]
+S10=Transaction validate
+S11=Sort + recon-prev merge
+S12=Post (-> PostgreSQL)
+S13=Interest accrual
+S16=Fee charge
+S17=Statement generate
+DRLABEL=Debit total DR
+CRLABEL=Credit total CR
+BALOK=[ BALANCED OK ]
+BALNG=[ UNBALANCED NG ]
+READY=[ READY ]
+RUNNING=[ POSTING... ]
+DONEMSG=[ BATCH DONE ]
+JC_TXN=TXN-ID
+JC_CAT=Cat
+JC_DR=Debit acct
+JC_CR=Credit acct
+JC_AMT=Amount
+CAT10=Deposit
+CAT20=Withdraw
+CAT30=Transfer
+CAT40=Wire
+CATRV=Reversal
+INVALIDTRAN=Invalid transaction code
+NOTIMPL=Not implemented (MVP: BMON / JRNL)
+PAGEOF=Page
+PRESSENTER=Press ENTER to continue
+KEYPROMPT=Inquiry key ===>
+CMDPROMPT=Command ===>
+NOTFOUND=No matching data found
+PF_INQ=Key+ENTER=inquire  /  B=back
+PF_PAGE=N=next P=prev B=back  /  Key+ENTER
+ACCTTITLE=Account Inquiry / Balance
+A_ANO=Account no
+A_NAME=Account name
+A_BRANCH=Branch
+A_PROD=Product
+A_STATUS=Status
+A_CUST=Customer ID
+A_OPENED=Opened
+A_DORM=Dormancy
+A_BAL=Balance
+A_AVAIL=Available
+A_HOLD=Hold
+A_TXNCNT=Txn count
+CUSTTITLE=Customer Inquiry / Accounts
+C_NAME=Name
+C_KANA=Kana
+C_STATUS=Status
+C_TIER=Tier
+C_PHONE=Phone
+C_ADDR=Address
+C_ACCTS=Accounts held
+C_TOTAL=Total balance
+HISTTITLE=Transaction History (Ledger)
+H_DATE=Bus.date
+H_TXN=TXN-ID
+H_ROLE=DR/CR
+H_AMT=Amount
+H_BAL=Current balance
+AUDTTITLE=Audit Trail Timeline
+AU_TS=Timestamp
+AU_SS=Subsystem
+AU_ACT=Action
+AU_SEV=Sev
+AU_TGT=Target
+M_REVS=Reverse a transaction
+REVSTITLE=Transaction Reversal
+PF_REVS=txn-id+ENTER  R=reason  Y/N=confirm  B=back
+R_TXN=Original txn id
+R_BD=Business date
+R_CAT=Category
+R_AMT=Amount (JPY)
+R_STAT=Status
+R_OPER=Operator
+R_REASON=Reversal reason
+R_CONFIRM=Reverse this transaction? (Y/N) ===>
+R_READONLY=Read-only. Set CONSOLE_ALLOW_WRITE=YES to enable writes
+R_BADTXN=Txn id must be exactly 18 digits
+R_NOTFOUND=Transaction not found
+R_NOTREVERS=This transaction is not reversible (status not PT/SE)
+R_CANCELLED=Reversal cancelled
+R_OK=Reversed. New RV txn id=
+R_ERR04=Reversal failed: original not found (04)
+R_ERR08=Reversal failed: not reversible / already reversed / balance (08)
+R_ERR12=Reversal failed: I/O error (12)
+R_ERRTO=Reversal status unknown: check audit/journal/log
+R_ERRGATE=Writes are disabled. CONSOLE_ALLOW_WRITE=YES required
+R_BADROW=Invalid row selection
+M_POST=Post transactions (deposit/withdraw/transfer)
+POSTTITLE=Transaction Posting
+PF_POST=A=add line  G=post  C=clear  B=back
+P_BDATE=Posting date
+P_CATQ=Type D=deposit W=withdraw T=transfer ===>
+P_ACCTQ=Account ===>
+P_PAYEEQ=Counter acct (transfer) ===>
+P_AMTQ=Amount (JPY) ===>
+P_HDR=Type  Account         Counter           Amount
+P_CONFIRM=Post these line items? (Y/N) ===>
+P_READONLY=Read-only. Set CONSOLE_ALLOW_WRITE=YES to enable
+P_EMPTY=No line items (use A to add)
+P_FULL=Up to 10 line items
+P_BADCAT=Type must be D/W/T
+P_BADACCT=Account not found or not active
+P_SYSACCT=Cannot post to a system account
+P_SELFXFER=Transfer from/to accounts are the same
+P_BADAMT=Amount must be 1 or more
+P_ADDED=Line item added
+P_CLEARED=Line items cleared
+P_CANCELLED=Posting cancelled
+P_OK=Posted count
+P_ALREADY=Already posted for this date (reset to retry)
+P_ALLREJECT=All line items rejected by validation
+P_ERR=Posting failed
+M_BRUN=Batch run monitor
+BRUNTITLE=Batch Run Monitor (BRUN)
+BR_BID=BATCH ID
+BR_BD=BIZ DATE
+BR_STATUS=ST
+BR_STEP=STEP
+BR_TXNS=TXNS
+BR_ERRS=ERR
+BR_START=START
+BR_EMPTY=No batch runs recorded
+M_SCEN=Run scenarios (#42 recon / #43 concurrency)
+SCENTITLE=Scenario Runner (SCEN)
+PF_SCEN=R=recon C=conc S=smoke B=back
+SC_HDR=Select a scenario to run:
+SC_DESC_RECON=R  recon (#42) merge dedup / recon-prev path
+SC_DESC_CONC=C  conc  (#43) FOR UPDATE + C1 concurrency safety
+SC_DESC_SMOKE=S  smoke      clean 100-record E2E pipeline
+SC_RUNNING=Running scenario... please wait
+SC_OK=[ PASS ]
+SC_FAIL=[ FAIL ]
+SC_SCN=Scenario
+SC_ELAPSED=elapsed
+SC_GATE=Destructive demo OFF (set CONSOLE_ALLOW_DESTRUCTIVE_DEMO_RESET=YES)
+OIA_SYS=PBNK001
+OIA_READY=● READY
+M_THEME=THEM toggle colour (green/amber)
+WATCHING=WATCH
+PF_BRUN=N=next P=prev W=watch B=back  /  Key+ENTER

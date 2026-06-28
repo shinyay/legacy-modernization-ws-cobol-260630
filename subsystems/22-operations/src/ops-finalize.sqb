@@ -1,0 +1,155 @@
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. OPS-FINALIZE.
+       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+
+       01  WS-CONN-FLAG              PIC X(1) VALUE "N".
+           88  WS-CONNECTED                   VALUE "Y".
+
+       01  WS-DATE-NUM               PIC 9(8).
+       01  WS-DATE-Y                 PIC 9(4).
+       01  WS-DATE-M                 PIC 9(2).
+       01  WS-DATE-D                 PIC 9(2).
+       01  WS-DATE-STR               PIC X(10).
+
+       01  WS-DISP                   PIC ZZZZZZZ9.
+       01  WS-ROWS-AFFECTED          PIC S9(9) COMP-3.
+
+       EXEC SQL BEGIN DECLARE SECTION END-EXEC.
+
+       01  HV-DB-NAME                PIC X(80).
+       01  HV-DB-USER                PIC X(32).
+       01  HV-DB-PASS                PIC X(32).
+       01  HV-BATCH-ID               PIC X(14).
+       01  HV-BUSINESS-DATE          PIC X(10).
+       01  HV-COUNT                  PIC S9(9) COMP-3.
+
+       EXEC SQL END DECLARE SECTION END-EXEC.
+
+       EXEC SQL INCLUDE sqlca END-EXEC.
+
+           COPY "aud-write-api.cpy".
+
+       LINKAGE SECTION.
+           COPY "ops-api.cpy".
+
+       PROCEDURE DIVISION USING OPF-INPUT OPF-OUTPUT.
+       MAIN-LOGIC.
+           PERFORM INIT-OUTPUT
+           PERFORM VALIDATE-INPUT
+           IF NOT OPF-OK GOBACK END-IF
+           PERFORM DB-CONNECT
+           IF NOT WS-CONNECTED
+               SET OPF-IO-FAIL TO TRUE
+               GOBACK
+           END-IF
+           PERFORM EMIT-START-AUDIT
+           PERFORM BUILD-HV-DATE
+           PERFORM FINALIZE-CHUNK
+           PERFORM POPULATE-OUTPUT
+           PERFORM EMIT-END-AUDIT
+           PERFORM CLEANUP
+           GOBACK.
+
+       INIT-OUTPUT.
+           SET OPF-OK TO TRUE
+           MOVE 0 TO OPF-OUT-FINALIZED-COUNT
+                     OPF-OUT-CHUNKS-RUN
+                     WS-ROWS-AFFECTED
+           MOVE "N" TO WS-CONN-FLAG
+           IF OPF-CHUNK-SIZE = 0
+               MOVE 10000 TO OPF-CHUNK-SIZE
+           END-IF.
+
+       VALIDATE-INPUT.
+           IF OPF-BATCH-ID = SPACES OR OPF-BUSINESS-DATE = 0
+               SET OPF-INVALID-INPUT TO TRUE
+           END-IF.
+
+       DB-CONNECT.
+           MOVE "banking" TO HV-DB-NAME
+           MOVE "cobol"   TO HV-DB-USER
+           MOVE "cobol"   TO HV-DB-PASS
+           EXEC SQL
+               CONNECT :HV-DB-USER IDENTIFIED BY :HV-DB-PASS
+                   USING :HV-DB-NAME
+           END-EXEC
+           IF SQLCODE = 0
+               SET WS-CONNECTED TO TRUE
+           END-IF.
+
+       BUILD-HV-DATE.
+           MOVE OPF-BUSINESS-DATE TO WS-DATE-NUM
+           DIVIDE WS-DATE-NUM BY 10000 GIVING WS-DATE-Y
+           COMPUTE WS-DATE-M = FUNCTION MOD(WS-DATE-NUM / 100, 100)
+           COMPUTE WS-DATE-D = FUNCTION MOD(WS-DATE-NUM, 100)
+           MOVE "0000-00-00" TO WS-DATE-STR
+           STRING WS-DATE-Y "-" WS-DATE-M "-" WS-DATE-D
+                  DELIMITED BY SIZE INTO WS-DATE-STR
+           MOVE WS-DATE-STR     TO HV-BUSINESS-DATE
+           MOVE OPF-BATCH-ID    TO HV-BATCH-ID.
+
+       FINALIZE-CHUNK.
+           EXEC SQL
+               UPDATE transactions
+                  SET status = 'SE'
+                WHERE source_batch_id = :HV-BATCH-ID
+                  AND business_date =
+                      CAST(:HV-BUSINESS-DATE AS DATE)
+                  AND status = 'PT'
+           END-EXEC
+           IF SQLCODE = 0
+               MOVE SQLERRD(3) TO WS-ROWS-AFFECTED
+               EXEC SQL COMMIT END-EXEC
+               ADD 1 TO OPF-OUT-CHUNKS-RUN
+           ELSE
+               EXEC SQL ROLLBACK END-EXEC
+               SET OPF-IO-FAIL TO TRUE
+           END-IF.
+
+       POPULATE-OUTPUT.
+           MOVE WS-ROWS-AFFECTED TO OPF-OUT-FINALIZED-COUNT.
+
+       EMIT-START-AUDIT.
+           MOVE "22-operations"        TO WS-AUD-SUBSYSTEM
+           MOVE "OPS_FINALIZE_START"   TO WS-AUD-ACTION
+           MOVE "SYSTEM"               TO WS-AUD-ACTOR
+           MOVE "BATCH"                TO WS-AUD-TARGET-TYPE
+           MOVE OPF-BATCH-ID           TO WS-AUD-TARGET-ID
+           MOVE "I"                    TO WS-AUD-SEVERITY
+           MOVE OPF-BUSINESS-DATE      TO WS-AUD-BUSINESS-DATE
+           MOVE SPACES                 TO WS-AUD-PAYLOAD-JSON
+           MOVE '{"phase":"PT->SE"}'  TO WS-AUD-PAYLOAD-JSON
+           CALL "AUD-WRITE" USING WS-AUD-ROW WS-AUD-RC
+               ON EXCEPTION CONTINUE
+           END-CALL.
+
+       EMIT-END-AUDIT.
+           MOVE "22-operations"        TO WS-AUD-SUBSYSTEM
+           IF OPF-OK
+               MOVE "OPS_FINALIZE_OK"  TO WS-AUD-ACTION
+               MOVE "I"                TO WS-AUD-SEVERITY
+           ELSE
+               MOVE "OPS_FINALIZE_FAIL" TO WS-AUD-ACTION
+               MOVE "E"                 TO WS-AUD-SEVERITY
+           END-IF
+           MOVE "SYSTEM"               TO WS-AUD-ACTOR
+           MOVE "BATCH"                TO WS-AUD-TARGET-TYPE
+           MOVE OPF-BATCH-ID           TO WS-AUD-TARGET-ID
+           MOVE OPF-BUSINESS-DATE      TO WS-AUD-BUSINESS-DATE
+           MOVE OPF-OUT-FINALIZED-COUNT TO WS-DISP
+           MOVE SPACES                 TO WS-AUD-PAYLOAD-JSON
+           STRING '{"finalized":' FUNCTION TRIM(WS-DISP) '}'
+                  DELIMITED BY SIZE INTO WS-AUD-PAYLOAD-JSON
+           CALL "AUD-WRITE" USING WS-AUD-ROW WS-AUD-RC
+               ON EXCEPTION CONTINUE
+           END-CALL.
+
+       CLEANUP.
+           IF WS-CONNECTED
+               EXEC SQL DISCONNECT ALL END-EXEC
+               MOVE "N" TO WS-CONN-FLAG
+           END-IF.
+
+       END PROGRAM OPS-FINALIZE.

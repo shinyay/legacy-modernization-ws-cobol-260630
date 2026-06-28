@@ -1,0 +1,123 @@
+{
+    "$schema": "https://raw.githubusercontent.com/devcontainers/spec/main/schemas/devContainer.schema.json",
+    "name": "COBOL Banking Practice 2607",
+    "dockerComposeFile": "compose.yaml",
+    "service": "cobol",
+    "workspaceFolder": "/workspace",
+    "remoteUser": "vscode",
+
+    "features": {
+        "ghcr.io/devcontainers/features/github-cli:1": {}
+    },
+
+    "forwardPorts": [5432, 15672],
+    "portsAttributes": {
+        "5432": {
+            "label": "PostgreSQL",
+            "onAutoForward": "silent"
+        },
+        "15672": {
+            "label": "RabbitMQ Management UI",
+            "onAutoForward": "notify"
+        }
+    },
+
+    "postCreateCommand": "bash .devcontainer/post-create.sh",
+
+    "customizations": {
+        "vscode": {
+            "extensions": [
+                "bitlang.cobol",
+                "broadcom.cobol-language-support",
+                "ms-vscode.makefile-tools",
+                "ms-azuretools.vscode-docker",
+                "streetsidesoftware.code-spell-checker",
+                "DavidAnson.vscode-markdownlint",
+                "GitHub.vscode-pull-request-github",
+                "GitHub.copilot",
+                "GitHub.copilot-chat",
+                "mtxr.sqltools",
+                "mtxr.sqltools-driver-pg",
+                "yzhang.markdown-all-in-one"
+            ],
+            "settings": {
+                "terminal.integrated.defaultProfile.linux": "bash",
+                "editor.tabSize": 4,
+                "editor.insertSpaces": true,
+                "editor.detectIndentation": false,
+                "editor.rulers": [72, 100],
+                "files.eol": "\n",
+                "files.trimTrailingWhitespace": true,
+
+                "[cobol]": {
+                    "editor.wordBasedSuggestions": "off",
+                    "editor.semanticHighlighting.enabled": true,
+                    "editor.formatOnSave": false,
+                    "editor.formatOnPaste": false,
+                    "editor.formatOnType": false,
+                    "editor.renderWhitespace": "all",
+                    "editor.rulers": [72],
+                    "files.trimTrailingWhitespace": false
+                },
+
+                "coboleditor.sourceformat": "free",
+                "coboleditor.format_on_save": false,
+                "coboleditor.maintain_sequence_numbers": false,
+                "coboleditor.preserve_additional_spaces": true,
+                "coboleditor.format.indicate_paragraph": false,
+                "coboleditor.format.align_data_division": false,
+                "coboleditor.format.init_program_division": false,
+                "coboleditor.format.init_division": false,
+                "coboleditor.copybookdirs": [
+                    "shared/copy",
+                    "subsystems/01-calendar/copy",
+                    "subsystems/02-branch/copy",
+                    "subsystems/03-customer/copy",
+                    "subsystems/04-customersearch/copy",
+                    "subsystems/05-product/copy",
+                    "subsystems/06-interestrate/copy",
+                    "subsystems/07-feeschedule/copy",
+                    "subsystems/08-account/copy",
+                    "subsystems/09-accountlifecycle/copy",
+                    "subsystems/10-txnvalidate/copy",
+                    "subsystems/11-txnsortmerge/copy",
+                    "subsystems/12-txnpost/copy",
+                    "subsystems/13-interestaccrual/copy",
+                    "subsystems/14-interestpost/copy",
+                    "subsystems/15-autodebit/copy",
+                    "subsystems/16-fee/copy",
+                    "subsystems/17-statement/copy",
+                    "subsystems/18-inquiry/copy",
+                    "subsystems/19-integrationin/copy",
+                    "subsystems/20-integrationout/copy",
+                    "subsystems/21-audit/copy",
+                    "subsystems/22-operations/copy"
+                ],
+                "coboleditor.copybookexts": ["cpy", "CPY"],
+                "coboleditor.fileformat_strategy": "always_free",
+
+                "sqltools.connections": [
+                    {
+                        "name": "banking (devcontainer)",
+                        "driver": "PostgreSQL",
+                        "server": "postgres",
+                        "port": 5432,
+                        "database": "banking",
+                        "username": "cobol",
+                        "password": "cobol",
+                        "askForPassword": false
+                    }
+                ],
+
+                "[markdown]": {
+                    "editor.wordWrap": "on",
+                    "editor.quickSuggestions": {
+                        "comments": "off",
+                        "strings": "off",
+                        "other": "off"
+                    }
+                }
+            }
+        }
+    }
+}

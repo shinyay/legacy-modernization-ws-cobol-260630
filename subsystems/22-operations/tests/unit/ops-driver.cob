@@ -1,0 +1,172 @@
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. OPS-DRIVER.
+       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+           COPY "ops-api.cpy".
+       01  WS-ENV                    PIC X(120).
+       01  WS-MODE                   PIC X(1).
+
+       PROCEDURE DIVISION.
+       MAIN.
+           MOVE SPACES TO WS-ENV
+           ACCEPT WS-ENV FROM ENVIRONMENT "OPS_MODE"
+           MOVE WS-ENV(1:1) TO WS-MODE
+           EVALUATE WS-MODE
+               WHEN "D" PERFORM RUN-DAILY
+               WHEN "M" PERFORM RUN-MONTHLY
+               WHEN "F" PERFORM RUN-FINALIZE
+               WHEN "R" PERFORM RUN-ROLLOVER
+               WHEN "Q" PERFORM RUN-DRAIN
+               WHEN OTHER
+                   DISPLAY "OPS_MODE must be D/M/F/R/Q"
+                   STOP RUN RETURNING 8
+           END-EVALUATE
+           STOP RUN.
+
+       RUN-DAILY.
+           MOVE SPACES TO OPB-BATCH-ID
+           ACCEPT OPB-BATCH-ID FROM ENVIRONMENT "OPS_BATCH_ID"
+           MOVE SPACES TO WS-ENV
+           ACCEPT WS-ENV FROM ENVIRONMENT "OPS_BUSINESS_DATE"
+           IF FUNCTION TRIM(WS-ENV) NOT = SPACES
+               COMPUTE OPB-BUSINESS-DATE = FUNCTION NUMVAL(WS-ENV)
+           ELSE
+               MOVE 20260601 TO OPB-BUSINESS-DATE
+           END-IF
+           MOVE SPACES TO WS-ENV
+           ACCEPT WS-ENV FROM ENVIRONMENT "OPS_DRY_RUN"
+           IF WS-ENV(1:1) = "N"
+               SET OPB-DRY-RUN-NO TO TRUE
+           ELSE
+               SET OPB-DRY-RUN-YES TO TRUE
+           END-IF
+           CALL "OPS-BATCH-DAILY" USING OPB-INPUT OPB-OUTPUT
+           DISPLAY "STATUS=" OPB-STATUS
+                   " LAST-STEP=" OPB-OUT-LAST-STEP
+                   " STEPS-RUN=" OPB-OUT-STEPS-RUN
+           EVALUATE TRUE
+               WHEN OPB-OK              STOP RUN RETURNING 0
+               WHEN OPB-FLOCK-CONFLICT  STOP RUN RETURNING 2
+               WHEN OPB-HALTED          STOP RUN RETURNING 4
+               WHEN OPB-INVALID-INPUT   STOP RUN RETURNING 8
+               WHEN OTHER               STOP RUN RETURNING 16
+           END-EVALUATE.
+
+       RUN-MONTHLY.
+           MOVE SPACES TO OPB-BATCH-ID
+           ACCEPT OPB-BATCH-ID FROM ENVIRONMENT "OPS_BATCH_ID"
+           MOVE SPACES TO WS-ENV
+           ACCEPT WS-ENV FROM ENVIRONMENT "OPS_BUSINESS_DATE"
+           IF FUNCTION TRIM(WS-ENV) NOT = SPACES
+               COMPUTE OPB-BUSINESS-DATE = FUNCTION NUMVAL(WS-ENV)
+           ELSE
+               MOVE 20260601 TO OPB-BUSINESS-DATE
+           END-IF
+           MOVE SPACES TO WS-ENV
+           ACCEPT WS-ENV FROM ENVIRONMENT "OPS_DRY_RUN"
+           IF WS-ENV(1:1) = "N"
+               SET OPB-DRY-RUN-NO TO TRUE
+           ELSE
+               SET OPB-DRY-RUN-YES TO TRUE
+           END-IF
+           CALL "OPS-BATCH-MONTHLY" USING OPB-INPUT OPB-OUTPUT
+           DISPLAY "STATUS=" OPB-STATUS
+                   " LAST-STEP=" OPB-OUT-LAST-STEP
+                   " STEPS-RUN=" OPB-OUT-STEPS-RUN
+           EVALUATE TRUE
+               WHEN OPB-OK              STOP RUN RETURNING 0
+               WHEN OPB-FLOCK-CONFLICT  STOP RUN RETURNING 2
+               WHEN OPB-HALTED          STOP RUN RETURNING 4
+               WHEN OPB-INVALID-INPUT   STOP RUN RETURNING 8
+               WHEN OTHER               STOP RUN RETURNING 16
+           END-EVALUATE.
+
+       RUN-FINALIZE.
+           MOVE SPACES TO OPF-BATCH-ID
+           ACCEPT OPF-BATCH-ID FROM ENVIRONMENT "OPS_BATCH_ID"
+           MOVE SPACES TO WS-ENV
+           ACCEPT WS-ENV FROM ENVIRONMENT "OPS_BUSINESS_DATE"
+           IF FUNCTION TRIM(WS-ENV) NOT = SPACES
+               COMPUTE OPF-BUSINESS-DATE = FUNCTION NUMVAL(WS-ENV)
+           ELSE
+               MOVE 20260601 TO OPF-BUSINESS-DATE
+           END-IF
+           MOVE SPACES TO WS-ENV
+           ACCEPT WS-ENV FROM ENVIRONMENT "OPS_CHUNK_SIZE"
+           IF FUNCTION TRIM(WS-ENV) NOT = SPACES
+               COMPUTE OPF-CHUNK-SIZE = FUNCTION NUMVAL(WS-ENV)
+           ELSE
+               MOVE 10000 TO OPF-CHUNK-SIZE
+           END-IF
+           CALL "OPS-FINALIZE" USING OPF-INPUT OPF-OUTPUT
+           DISPLAY "STATUS=" OPF-STATUS
+                   " FINALIZED=" OPF-OUT-FINALIZED-COUNT
+                   " CHUNKS=" OPF-OUT-CHUNKS-RUN
+           EVALUATE TRUE
+               WHEN OPF-OK              STOP RUN RETURNING 0
+               WHEN OPF-INVALID-INPUT   STOP RUN RETURNING 8
+               WHEN OPF-IO-FAIL         STOP RUN RETURNING 12
+               WHEN OTHER               STOP RUN RETURNING 16
+           END-EVALUATE.
+
+       RUN-ROLLOVER.
+           MOVE SPACES TO WS-ENV
+           ACCEPT WS-ENV FROM ENVIRONMENT "OPS_RETENTION_DAYS"
+           IF FUNCTION TRIM(WS-ENV) NOT = SPACES
+               COMPUTE OPR-RETENTION-DAYS = FUNCTION NUMVAL(WS-ENV)
+           ELSE
+               MOVE 30 TO OPR-RETENTION-DAYS
+           END-IF
+           MOVE SPACES TO WS-ENV
+           ACCEPT WS-ENV FROM ENVIRONMENT "OPS_DRY_RUN"
+           IF WS-ENV(1:1) = "Y"
+               MOVE "Y" TO OPR-DRY-RUN
+           ELSE
+               MOVE "N" TO OPR-DRY-RUN
+           END-IF
+           MOVE SPACES TO WS-ENV
+           ACCEPT WS-ENV FROM ENVIRONMENT "OPS_ENABLE_DETACH"
+           IF WS-ENV(1:1) = "Y"
+               MOVE "Y" TO OPR-ENABLE-DETACH
+           ELSE
+               MOVE "N" TO OPR-ENABLE-DETACH
+           END-IF
+           MOVE "ops" TO OPR-OPERATOR-USER
+           CALL "OPS-PARTITION-ROLLOVER" USING OPR-INPUT OPR-OUTPUT
+           DISPLAY "STATUS=" OPR-STATUS
+                   " CREATED=" OPR-OUT-CREATED-COUNT
+                   " DETACHED=" OPR-OUT-DETACHED-COUNT
+           EVALUATE TRUE
+               WHEN OPR-OK              STOP RUN RETURNING 0
+               WHEN OTHER               STOP RUN RETURNING 16
+           END-EVALUATE.
+
+       RUN-DRAIN.
+           MOVE SPACES TO OPD-SOURCE-FILENAME
+           ACCEPT OPD-SOURCE-FILENAME FROM ENVIRONMENT
+                  "OPS_DRAIN_SOURCE"
+           MOVE SPACES TO WS-ENV
+           ACCEPT WS-ENV FROM ENVIRONMENT "OPS_DRAIN_MAX"
+           IF FUNCTION TRIM(WS-ENV) NOT = SPACES
+               COMPUTE OPD-MAX-RECORDS = FUNCTION NUMVAL(WS-ENV)
+           ELSE
+               MOVE 1000 TO OPD-MAX-RECORDS
+           END-IF
+           SET OPD-MODE-MOCK TO TRUE
+           MOVE SPACES TO WS-ENV
+           ACCEPT WS-ENV FROM ENVIRONMENT "OPS_DRAIN_MODE"
+           IF WS-ENV(1:1) = "R"
+               SET OPD-MODE-REAL TO TRUE
+           END-IF
+           CALL "OPS-DRAIN-QUEUES" USING OPD-INPUT OPD-OUTPUT
+           DISPLAY "STATUS=" OPD-STATUS
+                   " DRAINED=" OPD-OUT-DRAINED-COUNT
+                   " FAILED=" OPD-OUT-FAILED-COUNT
+           EVALUATE TRUE
+               WHEN OPD-OK              STOP RUN RETURNING 0
+               WHEN OPD-PARTIAL         STOP RUN RETURNING 4
+               WHEN OTHER               STOP RUN RETURNING 16
+           END-EVALUATE.
+
+       END PROGRAM OPS-DRIVER.

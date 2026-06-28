@@ -1,0 +1,3809 @@
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. OPER-CONSOLE.
+       ENVIRONMENT DIVISION.
+       CONFIGURATION SECTION.
+       INPUT-OUTPUT SECTION.
+       FILE-CONTROL.
+           SELECT MSG-FILE ASSIGN TO WS-MSG-PATH
+               ORGANIZATION IS LINE SEQUENTIAL
+               FILE STATUS  IS WS-MSG-FS.
+           SELECT REVREQ-FILE ASSIGN TO WS-REQ-PATH
+               ORGANIZATION IS LINE SEQUENTIAL
+               FILE STATUS  IS WS-REQ-FS.
+           SELECT REVRES-FILE ASSIGN TO WS-RES-PATH
+               ORGANIZATION IS LINE SEQUENTIAL
+               FILE STATUS  IS WS-RES-FS.
+          SELECT POSTREQ-FILE ASSIGN TO WS-PREQ-PATH
+              ORGANIZATION IS LINE SEQUENTIAL
+              FILE STATUS  IS WS-PREQ-FS.
+          SELECT POSTRES-FILE ASSIGN TO WS-PRES-PATH
+              ORGANIZATION IS LINE SEQUENTIAL
+              FILE STATUS  IS WS-PRES-FS.
+          SELECT SCENRES-FILE ASSIGN TO WS-SCEN-RES-PATH
+              ORGANIZATION IS LINE SEQUENTIAL
+              FILE STATUS  IS WS-SCRES-FS.
+          SELECT SCENKEY-FILE ASSIGN TO WS-SCEN-KEY-PATH
+              ORGANIZATION IS LINE SEQUENTIAL
+              FILE STATUS  IS WS-SCKEY-FS.
+
+       DATA DIVISION.
+       FILE SECTION.
+       FD  MSG-FILE.
+       01  MSG-REC                   PIC X(200).
+
+       FD  REVREQ-FILE.
+       01  REVREQ-REC                PIC X(120).
+       FD  REVRES-FILE.
+       01  REVRES-REC                PIC X(160).
+       FD  POSTREQ-FILE.
+       01  POSTREQ-REC               PIC X(200).
+       FD  POSTRES-FILE.
+       01  POSTRES-REC               PIC X(160).
+       FD  SCENRES-FILE.
+       01  SCENRES-REC               PIC X(120).
+       FD  SCENKEY-FILE.
+       01  SCENKEY-REC               PIC X(120).
+
+       WORKING-STORAGE SECTION.
+       01  WS-SCREEN-MODE            PIC X(1) VALUE "N".
+           88  SCREEN-ON                      VALUE "S".
+       01  WS-LANG                   PIC X(2) VALUE "ja".
+       01  WS-TRAN-ARG               PIC X(8) VALUE SPACES.
+       01  WS-SCRIPTED               PIC X(1) VALUE "N".
+           88  SCRIPTED-ON                    VALUE "Y".
+       01  WS-ARG-CNT                PIC 9(2) VALUE 0.
+       01  WS-ARG-IDX                PIC 9(2) VALUE 0.
+       01  WS-ARG-VALUE              PIC X(40) VALUE SPACES.
+       01  WS-EXIT-FLAG              PIC X(1) VALUE "N".
+       01  WS-MENU-EXIT-FLAG        PIC X(1) VALUE "N".
+           88  WS-EXIT-NOW                    VALUE "Y".
+
+       01  WS-MSG-PATH               PIC X(160) VALUE SPACES.
+       01  WS-MSG-DIR                PIC X(140) VALUE SPACES.
+       01  WS-MSG-FS                 PIC X(2)  VALUE "00".
+       01  WS-MSG-EOF                PIC X(1)  VALUE "N".
+       01  WS-MKEY                   PIC X(20) VALUE SPACES.
+       01  WS-MVAL                   PIC X(180) VALUE SPACES.
+       01  WS-MPTR                   PIC 9(4) VALUE 1.
+
+       01  WS-LBL.
+           05  LBL-APPTITLE          PIC X(72).
+           05  LBL-MENUHEAD          PIC X(72).
+           05  LBL-M-BMON            PIC X(60).
+           05  LBL-M-JRNL            PIC X(60).
+           05  LBL-M-ACCT            PIC X(60).
+           05  LBL-M-AUDT            PIC X(60).
+           05  LBL-TRANPROMPT        PIC X(12).
+           05  LBL-PF-MENU           PIC X(60).
+           05  LBL-PF-BMON           PIC X(60).
+           05  LBL-PF-JRNL           PIC X(60).
+           05  LBL-BMONTITLE         PIC X(60).
+           05  LBL-JRNLTITLE         PIC X(60).
+           05  LBL-COL-STEP          PIC X(10).
+           05  LBL-COL-BIZ           PIC X(40).
+           05  LBL-COL-STATE         PIC X(16).
+           05  LBL-COL-CNT           PIC X(24).
+           05  LBL-ST-WAIT           PIC X(14).
+           05  LBL-ST-RUN            PIC X(14).
+           05  LBL-ST-DONE           PIC X(14).
+           05  LBL-ST-FAIL           PIC X(14).
+           05  LBL-S10               PIC X(40).
+           05  LBL-S11               PIC X(40).
+           05  LBL-S12               PIC X(40).
+           05  LBL-S13               PIC X(40).
+           05  LBL-S16               PIC X(40).
+           05  LBL-S17               PIC X(40).
+           05  LBL-DRLABEL           PIC X(24).
+           05  LBL-CRLABEL           PIC X(24).
+           05  LBL-BALOK             PIC X(24).
+           05  LBL-BALNG             PIC X(24).
+           05  LBL-READY             PIC X(20).
+           05  LBL-RUNNING           PIC X(20).
+           05  LBL-DONEMSG           PIC X(24).
+           05  LBL-JC-TXN            PIC X(20).
+           05  LBL-JC-CAT            PIC X(8).
+           05  LBL-JC-DR             PIC X(20).
+           05  LBL-JC-CR             PIC X(20).
+           05  LBL-JC-AMT            PIC X(12).
+           05  LBL-CAT10             PIC X(10).
+           05  LBL-CAT20             PIC X(10).
+           05  LBL-CAT30             PIC X(10).
+           05  LBL-CAT40             PIC X(10).
+           05  LBL-CATRV             PIC X(10).
+           05  LBL-INVALIDTRAN       PIC X(60).
+           05  LBL-NOTIMPL           PIC X(60).
+           05  LBL-PAGEOF            PIC X(10).
+           05  LBL-PRESSENTER        PIC X(40).
+           05  LBL-M-CUST            PIC X(60).
+           05  LBL-M-HIST            PIC X(60).
+           05  LBL-KEYPROMPT         PIC X(18).
+           05  LBL-CMDPROMPT         PIC X(18).
+           05  LBL-NOTFOUND          PIC X(40).
+           05  LBL-PF-INQ            PIC X(40).
+           05  LBL-PF-PAGE           PIC X(56).
+           05  LBL-ACCTTITLE         PIC X(46).
+           05  LBL-A-ANO             PIC X(16).
+           05  LBL-A-NAME            PIC X(16).
+           05  LBL-A-BRANCH          PIC X(16).
+           05  LBL-A-PROD            PIC X(16).
+           05  LBL-A-STATUS          PIC X(16).
+           05  LBL-A-CUST            PIC X(16).
+           05  LBL-A-OPENED          PIC X(16).
+           05  LBL-A-DORM            PIC X(16).
+           05  LBL-A-BAL             PIC X(16).
+           05  LBL-A-AVAIL           PIC X(16).
+           05  LBL-A-HOLD            PIC X(16).
+           05  LBL-A-TXNCNT          PIC X(16).
+           05  LBL-CUSTTITLE         PIC X(46).
+           05  LBL-C-NAME            PIC X(16).
+           05  LBL-C-KANA            PIC X(16).
+           05  LBL-C-STATUS          PIC X(16).
+           05  LBL-C-TIER            PIC X(16).
+           05  LBL-C-PHONE           PIC X(16).
+           05  LBL-C-ADDR            PIC X(16).
+           05  LBL-C-ACCTS           PIC X(20).
+           05  LBL-C-TOTAL           PIC X(16).
+           05  LBL-HISTTITLE         PIC X(46).
+           05  LBL-H-DATE            PIC X(12).
+           05  LBL-H-TXN             PIC X(20).
+           05  LBL-H-ROLE            PIC X(8).
+           05  LBL-H-AMT             PIC X(12).
+           05  LBL-H-BAL             PIC X(16).
+           05  LBL-AUDTTITLE         PIC X(46).
+           05  LBL-AU-TS             PIC X(20).
+           05  LBL-AU-SS             PIC X(16).
+           05  LBL-AU-ACT            PIC X(16).
+           05  LBL-AU-SEV            PIC X(8).
+           05  LBL-AU-TGT            PIC X(12).
+           05  LBL-M-REVS            PIC X(60).
+           05  LBL-REVSTITLE         PIC X(46).
+           05  LBL-PF-REVS           PIC X(56).
+           05  LBL-R-TXN             PIC X(20).
+           05  LBL-R-BD              PIC X(16).
+           05  LBL-R-CAT             PIC X(16).
+           05  LBL-R-AMT             PIC X(16).
+           05  LBL-R-STAT            PIC X(16).
+           05  LBL-R-OPER            PIC X(16).
+           05  LBL-R-REASON          PIC X(20).
+           05  LBL-R-CONFIRM         PIC X(50).
+           05  LBL-R-READONLY        PIC X(60).
+           05  LBL-R-BADTXN          PIC X(50).
+           05  LBL-R-NOTFOUND        PIC X(50).
+           05  LBL-R-NOTREVERS       PIC X(50).
+           05  LBL-R-CANCELLED       PIC X(40).
+           05  LBL-R-OK              PIC X(30).
+           05  LBL-R-ERR04           PIC X(50).
+           05  LBL-R-ERR08           PIC X(50).
+           05  LBL-R-ERR12           PIC X(50).
+           05  LBL-R-ERRTO           PIC X(50).
+           05  LBL-R-ERRGATE         PIC X(50).
+           05  LBL-R-BADROW          PIC X(40).
+           05  LBL-M-POST            PIC X(60).
+           05  LBL-POSTTITLE         PIC X(46).
+           05  LBL-PF-POST           PIC X(56).
+           05  LBL-P-BDATE           PIC X(16).
+           05  LBL-P-CATQ            PIC X(40).
+           05  LBL-P-ACCTQ           PIC X(20).
+           05  LBL-P-PAYEEQ          PIC X(20).
+           05  LBL-P-AMTQ            PIC X(20).
+           05  LBL-P-HDR             PIC X(50).
+           05  LBL-P-CONFIRM         PIC X(50).
+           05  LBL-P-READONLY        PIC X(60).
+           05  LBL-P-EMPTY           PIC X(40).
+           05  LBL-P-FULL            PIC X(40).
+           05  LBL-P-BADCAT          PIC X(40).
+           05  LBL-P-BADACCT         PIC X(50).
+           05  LBL-P-SYSACCT         PIC X(50).
+           05  LBL-P-SELFXFER        PIC X(50).
+           05  LBL-P-BADAMT          PIC X(40).
+           05  LBL-P-ADDED           PIC X(40).
+           05  LBL-P-CLEARED         PIC X(40).
+           05  LBL-P-CANCELLED       PIC X(40).
+           05  LBL-P-OK              PIC X(40).
+           05  LBL-P-ALREADY         PIC X(50).
+           05  LBL-P-ALLREJECT       PIC X(50).
+           05  LBL-P-ERR             PIC X(50).
+           05  LBL-M-BRUN            PIC X(60).
+           05  LBL-BRUNTITLE         PIC X(46).
+           05  LBL-BR-BID            PIC X(14).
+           05  LBL-BR-BD             PIC X(10).
+           05  LBL-BR-STATUS         PIC X(2).
+           05  LBL-BR-STEP           PIC X(13).
+           05  LBL-BR-TXNS           PIC X(9).
+           05  LBL-BR-ERRS           PIC X(6).
+           05  LBL-BR-START          PIC X(8).
+           05  LBL-BR-EMPTY          PIC X(40).
+           05  LBL-M-SCEN            PIC X(60).
+           05  LBL-SCENTITLE         PIC X(46).
+           05  LBL-PF-SCEN           PIC X(56).
+           05  LBL-SC-HDR            PIC X(50).
+           05  LBL-SC-DESC-RECON     PIC X(64).
+           05  LBL-SC-DESC-CONC      PIC X(64).
+           05  LBL-SC-DESC-SMOKE     PIC X(64).
+           05  LBL-SC-RUNNING        PIC X(50).
+           05  LBL-SC-OK             PIC X(12).
+           05  LBL-SC-FAIL           PIC X(12).
+           05  LBL-SC-SCN            PIC X(12).
+           05  LBL-SC-ELAPSED        PIC X(10).
+           05  LBL-SC-GATE           PIC X(70).
+           05  LBL-OIA-SYS           PIC X(12).
+           05  LBL-OIA-READY         PIC X(20).
+           05  LBL-M-THEME           PIC X(40).
+           05  LBL-WATCHING          PIC X(12).
+           05  LBL-PF-BRUN           PIC X(56).
+
+       01  WS-TRAN-IN                PIC X(4) VALUE SPACES.
+       01  WS-STATUS-MSG             PIC X(40) VALUE SPACES.
+       01  WS-ERR-MSG                PIC X(70) VALUE SPACES.
+       01  WS-TODAY                  PIC X(10) VALUE SPACES.
+       01  WS-FUNC-DATE              PIC X(21).
+       01  WS-SEP                    PIC X(79) VALUE ALL "=".
+       01  WS-SEPDASH                PIC X(79) VALUE ALL "-".
+
+       01  WS-DEMO-BATCH             PIC X(14) VALUE "E2E-CONS-01".
+       01  WS-DEMO-BDATE             PIC X(8)  VALUE "20260612".
+       01  WS-DEMO-BDATE-PG          PIC X(10) VALUE "2026-06-12".
+       01  WS-WORKDIR                PIC X(60) VALUE SPACES.
+       01  WS-STAGE-SCRIPT           PIC X(120) VALUE SPACES.
+       01  WS-CMD                    PIC X(300) VALUE SPACES.
+       01  WS-CMD-RC                 PIC S9(4) COMP-3 VALUE 0.
+       01  WS-ST-S10                 PIC X(14) VALUE SPACES.
+       01  WS-ST-S11                 PIC X(14) VALUE SPACES.
+       01  WS-ST-S12                 PIC X(14) VALUE SPACES.
+       01  WS-ST-S13                 PIC X(14) VALUE SPACES.
+       01  WS-ST-S16                 PIC X(14) VALUE SPACES.
+       01  WS-ST-S17                 PIC X(14) VALUE SPACES.
+       01  WS-CNT-S10                PIC X(28) VALUE SPACES.
+       01  WS-CNT-S11                PIC X(28) VALUE SPACES.
+       01  WS-CNT-S12                PIC X(28) VALUE SPACES.
+       01  WS-BMON-STATUS            PIC X(20) VALUE SPACES.
+       01  WS-BMON-OK                PIC X(1) VALUE "Y".
+       01  WS-DR-DISP                PIC -ZZZ,ZZZ,ZZZ,ZZ9.
+       01  WS-CR-DISP                PIC -ZZZ,ZZZ,ZZZ,ZZ9.
+       01  WS-BAL-IND                PIC X(24) VALUE SPACES.
+       01  WS-NANOS                  PIC 9(10) VALUE 0.
+
+       01  WS-PAGE                   PIC 9(3) VALUE 1.
+       01  WS-PAGE-SIZE              PIC 9(2) VALUE 10.
+       01  WS-OFFSET                 PIC 9(6) VALUE 0.
+       01  WS-ROW-IDX                PIC 9(2) VALUE 0.
+       01  WS-JTOTAL                 PIC 9(6) VALUE 0.
+       01  WS-JROWS.
+           05  WS-JROW OCCURS 10.
+               10  JR-TXN            PIC X(18).
+               10  JR-CAT            PIC X(10).
+               10  JR-DR             PIC X(13).
+               10  JR-CR             PIC X(13).
+               10  JR-AMT            PIC -ZZZ,ZZZ,ZZ9.
+       01  WS-PLAIN-AMT              PIC X(16).
+       01  WS-CNT-EDIT              PIC ZZZZZZ9.
+
+       01  WS-KEY                    PIC X(13) VALUE SPACES.
+       01  WS-SCR-PFX                PIC X(9)  VALUE SPACES.
+       01  WS-SCR-TITLE              PIC X(46) VALUE SPACES.
+       01  WS-SCR-PF                 PIC X(56) VALUE SPACES.
+       01  WS-NF-FLAG                PIC X(1)  VALUE "N".
+       01  WS-FLD-LBL                PIC X(16) VALUE SPACES.
+       01  WS-FLD-VAL                PIC X(60) VALUE SPACES.
+       01  WS-FLD-LINE               PIC 9(2)  VALUE 0.
+       01  WS-A-NAME                 PIC X(40) VALUE SPACES.
+       01  WS-A-BRANCH               PIC X(3)  VALUE SPACES.
+       01  WS-A-PROD                 PIC X(3)  VALUE SPACES.
+       01  WS-A-STATUS               PIC X(1)  VALUE SPACES.
+       01  WS-A-CUST                 PIC X(10) VALUE SPACES.
+       01  WS-A-OPENED               PIC X(10) VALUE SPACES.
+       01  WS-A-DORM                 PIC X(10) VALUE SPACES.
+       01  WS-A-BAL-E                PIC -Z,ZZZ,ZZZ,ZZZ,ZZ9.
+       01  WS-A-AVAIL-E              PIC -Z,ZZZ,ZZZ,ZZZ,ZZ9.
+       01  WS-A-HOLD-E               PIC -Z,ZZZ,ZZZ,ZZZ,ZZ9.
+       01  WS-A-TXNCNT-E             PIC ZZZ,ZZ9.
+       01  WS-C-NAME                 PIC X(40) VALUE SPACES.
+       01  WS-C-KANA                 PIC X(40) VALUE SPACES.
+       01  WS-C-STATUS               PIC X(1)  VALUE SPACES.
+       01  WS-C-TIER                 PIC X(1)  VALUE SPACES.
+       01  WS-C-PHONE                PIC X(20) VALUE SPACES.
+       01  WS-C-ADDR                 PIC X(40) VALUE SPACES.
+       01  WS-C-TOTAL-E              PIC -Z,ZZZ,ZZZ,ZZZ,ZZ9.
+       01  WS-C-TOTAL-RAW           PIC S9(18) COMP-3 VALUE 0.
+       01  WS-C-ACNT                 PIC 9(3)  VALUE 0.
+       01  WS-CACCTS.
+           05  WS-CA-ROW OCCURS 12.
+               10  CA-ANO            PIC X(13).
+               10  CA-PROD           PIC X(3).
+               10  CA-STATUS         PIC X(1).
+               10  CA-BAL            PIC X(18).
+       01  WS-HROWS.
+           05  WS-HR-ROW OCCURS 10.
+               10  HR-DATE           PIC X(10).
+               10  HR-TXN            PIC X(18).
+               10  HR-ROLE           PIC X(2).
+               10  HR-AMT            PIC X(18).
+       01  WS-H-BAL-E                PIC -Z,ZZZ,ZZZ,ZZZ,ZZ9.
+       01  WS-AROWS.
+           05  WS-AU-ROW OCCURS 10.
+               10  AU-TS             PIC X(19).
+               10  AU-SS             PIC X(18).
+               10  AU-ACT            PIC X(24).
+               10  AU-SEV            PIC X(1).
+               10  AU-TGT            PIC X(20).
+       01  WS-BRROWS.
+           05  WS-BR-ROW OCCURS 10.
+               10  BR-BID            PIC X(14).
+               10  BR-BD             PIC X(10).
+               10  BR-STATUS         PIC X(2).
+               10  BR-STEP           PIC X(20).
+               10  BR-TXNS           PIC X(8).
+               10  BR-ERRS           PIC X(8).
+               10  BR-START          PIC X(19).
+       01  WS-BR-NUM-EDIT            PIC ZZZZZZ9.
+       01  WS-WATCH-CYCLES          PIC 9(3)  VALUE 12.
+       01  WS-WATCH-MS              PIC 9(6)  VALUE 2000.
+       01  WS-WATCH-NANOS           PIC 9(10) VALUE 0.
+       01  WS-WATCH-N               PIC 9(3)  VALUE 0.
+       01  WS-WENV                  PIC X(8)  VALUE SPACES.
+       01  WS-WN-DISP               PIC ZZ9.
+       01  WS-WC-DISP               PIC ZZ9.
+       01  WS-SCEN-SCRIPT            PIC X(160) VALUE SPACES.
+       01  WS-SCEN-DIR               PIC X(160)
+                                      VALUE "/tmp/console-demo".
+       01  WS-SCEN-ARG               PIC X(12)  VALUE SPACES.
+       01  WS-SCEN-VERB              PIC X(12)  VALUE SPACES.
+       01  WS-SCEN-TAG               PIC X(8)   VALUE SPACES.
+       01  WS-SCEN-RC                PIC S9(4)  COMP-3 VALUE 0.
+       01  WS-SCEN-RAN               PIC X(1)   VALUE "N".
+       01  WS-SCEN-OK-FLAG           PIC X(1)   VALUE "N".
+       01  WS-SCEN-KEOF              PIC X(1)   VALUE "N".
+       01  WS-SCEN-LINE              PIC X(120) VALUE SPACES.
+       01  WS-SCEN-LINE2             PIC X(72)  VALUE SPACES.
+       01  WS-SCEN-RPASS             PIC X(6)   VALUE SPACES.
+       01  WS-SCEN-RFAIL             PIC X(6)   VALUE SPACES.
+       01  WS-SCEN-RRC               PIC X(6)   VALUE SPACES.
+       01  WS-SCEN-RELAPSED          PIC X(6)   VALUE SPACES.
+       01  WS-SCEN-FLD               PIC 9(2)   VALUE 0.
+       01  WS-SCEN-KCNT              PIC 9(2)   VALUE 0.
+       01  WS-SCEN-KEYS.
+           05  WS-SCEN-KEY OCCURS 8  PIC X(72).
+       01  WS-SCEN-RES-PATH          PIC X(200) VALUE SPACES.
+       01  WS-SCEN-KEY-PATH          PIC X(200) VALUE SPACES.
+       01  WS-SCRES-FS               PIC X(2)   VALUE "00".
+       01  WS-SCKEY-FS               PIC X(2)   VALUE "00".
+       01  WS-AMT-EDIT               PIC -Z,ZZZ,ZZZ,ZZZ,ZZ9.
+       01  WS-DATE-OK                PIC X(1)  VALUE "Y".
+       01  WS-DATEKEY                PIC X(10) VALUE SPACES.
+
+       01  WS-ESC                    PIC X VALUE X"1B".
+       01  WS-AT-ROW                 PIC 9(2) VALUE 1.
+       01  WS-AT-COL                 PIC 9(2) VALUE 1.
+       01  WS-PUT-COLOR              PIC X(12) VALUE "32".
+       01  WS-PUT-TEXT               PIC X(240) VALUE SPACES.
+       01  WS-THEME                  PIC X(8)  VALUE "green".
+       01  WS-CLR-BASE               PIC X(12) VALUE "32".
+       01  WS-CLR-HI                 PIC X(12) VALUE "1;32".
+       01  WS-CLR-REV                PIC X(12) VALUE "7;32".
+       01  WS-BX-TL                  PIC X(3)  VALUE X"E2948C".
+       01  WS-BX-TR                  PIC X(3)  VALUE X"E29490".
+       01  WS-BX-BL                  PIC X(3)  VALUE X"E29494".
+       01  WS-BX-BR                  PIC X(3)  VALUE X"E29498".
+       01  WS-BX-V                   PIC X(3)  VALUE X"E29482".
+       01  WS-BX-TEEL                PIC X(3)  VALUE X"E2949C".
+       01  WS-BX-TEER                PIC X(3)  VALUE X"E294A4".
+       01  WS-BX-H                   PIC X(3)  VALUE X"E29480".
+       01  WS-HBAR                   PIC X(240) VALUE SPACES.
+       01  WS-HB-PTR                 PIC 9(3)  VALUE 1.
+       01  WS-FRAME-ROW              PIC 9(2)  VALUE 0.
+       01  WS-SEP-ROW                PIC 9(2)  VALUE 0.
+       01  WS-OIA-CLOCK              PIC X(16) VALUE SPACES.
+       01  WS-RETURN-CODE            PIC S9(4) VALUE 0.
+       01  WS-STEP-NO                PIC X(2)  VALUE SPACES.
+       01  WS-DRCR-TEXT              PIC X(20) VALUE SPACES.
+       01  WS-ROW-BIZ                PIC X(120) VALUE SPACES.
+       01  WS-ROW-SAVE               PIC 9(2)  VALUE 0.
+       01  WS-FLD-COL                PIC 9(2)  VALUE 1.
+       01  WS-CMD-LINE               PIC X(20) VALUE SPACES.
+       01  WS-CMD-NORM               PIC X(20) VALUE SPACES.
+
+       01  WS-ALLOW-WRITE            PIC X(1)  VALUE "N".
+       01  WS-OPERATOR               PIC X(20) VALUE SPACES.
+       01  WS-REVS-DIR               PIC X(160) VALUE
+           "/tmp/console-demo/revs".
+       01  WS-REVS-SCRIPT            PIC X(160) VALUE SPACES.
+       01  WS-REQ-PATH               PIC X(200) VALUE SPACES.
+       01  WS-RES-PATH               PIC X(200) VALUE SPACES.
+       01  WS-REQ-FS                 PIC X(2)  VALUE "00".
+       01  WS-RES-FS                 PIC X(2)  VALUE "00".
+       01  WS-REQ-ID                 PIC X(20) VALUE SPACES.
+       01  WS-PREFILL-TXN            PIC X(18) VALUE SPACES.
+       01  WS-PENDING-TRAN           PIC X(4)  VALUE SPACES.
+       01  WS-REVS-TXN               PIC X(18) VALUE SPACES.
+       01  WS-REVS-REASON            PIC X(80) VALUE SPACES.
+       01  WS-REVS-BACK              PIC X(1)  VALUE "N".
+       01  WS-PF-LOADED              PIC X(1)  VALUE "N".
+       01  WS-REVS-CONFIRMED         PIC X(1)  VALUE "N".
+       01  WS-REVS-SUCCESS           PIC X(1)  VALUE "N".
+       01  WS-REVS-RC                PIC S9(4) COMP-3 VALUE 0.
+       01  WS-RES-LINE               PIC X(160) VALUE SPACES.
+       01  WS-RES-REQID              PIC X(20) VALUE SPACES.
+       01  WS-RES-STATUS             PIC X(2)  VALUE SPACES.
+       01  WS-RES-RVID               PIC X(18) VALUE SPACES.
+       01  WS-RES-INDOUBT            PIC X(1)  VALUE SPACES.
+       01  WS-RES-IDX                PIC 9(3)  VALUE 0.
+       01  WS-RES-FLD                PIC 9(1)  VALUE 0.
+       01  WS-RES-CH                 PIC X(1)  VALUE SPACES.
+       01  WS-PF-AMT-EDIT            PIC -Z,ZZZ,ZZZ,ZZZ,ZZ9.
+       01  WS-OK-MSG                 PIC X(70) VALUE SPACES.
+       01  WS-RV-CONFIRMED           PIC X(1)  VALUE "N".
+       01  WS-RES-FOUND              PIC X(1)  VALUE "N".
+       01  WS-RES-IDX2               PIC 9(3)  VALUE 0.
+       01  WS-ROW-PICK               PIC 9(2)  VALUE 0.
+       01  WS-ROW-OK                 PIC X(1)  VALUE "N".
+       01  WS-ROW-DIGITS             PIC X(2)  VALUE SPACES.
+
+       01  WS-POST-SCRIPT            PIC X(160) VALUE SPACES.
+       01  WS-POST-DIR               PIC X(160) VALUE
+           "/tmp/console-demo/post".
+       01  WS-POST-BDATE             PIC X(10)  VALUE "2026-06-15".
+       01  WS-PREQ-PATH              PIC X(200) VALUE SPACES.
+       01  WS-PRES-PATH              PIC X(200) VALUE SPACES.
+       01  WS-PREQ-FS                PIC X(2)   VALUE "00".
+       01  WS-PRES-FS                PIC X(2)   VALUE "00".
+       01  WS-PNUM                   PIC 9(2)   VALUE 0.
+       01  WS-PIDX                   PIC 9(2)   VALUE 0.
+       01  WS-POST-CAT               PIC X(2)   VALUE SPACES.
+       01  WS-POST-PAYER             PIC X(13)  VALUE SPACES.
+       01  WS-POST-PAYEE             PIC X(13)  VALUE SPACES.
+       01  WS-POST-AMT               PIC 9(15)  VALUE 0.
+       01  WS-POST-AMT-DISP          PIC -Z,ZZZ,ZZZ,ZZZ,ZZ9.
+       01  WS-POST-DESC              PIC X(40)  VALUE SPACES.
+       01  WS-POST-BACK              PIC X(1)   VALUE "N".
+       01  WS-POST-RC                PIC S9(4)  COMP-3 VALUE 0.
+       01  WS-PITEMS.
+           05  WS-PITEM OCCURS 10.
+               10  PI-CAT            PIC X(2).
+               10  PI-PAYER          PIC X(13).
+               10  PI-PAYEE          PIC X(13).
+               10  PI-AMT            PIC 9(15).
+               10  PI-DESC           PIC X(40).
+       01  WS-PRES-LINE              PIC X(160) VALUE SPACES.
+       01  WS-PRES-STATUS            PIC X(10)  VALUE SPACES.
+       01  WS-PRES-POSTED            PIC X(7)   VALUE SPACES.
+       01  WS-PRES-REJECT            PIC X(7)   VALUE SPACES.
+       01  WS-PRES-REASONS           PIC X(40)  VALUE SPACES.
+       01  WS-PRES-IDX               PIC 9(3)   VALUE 0.
+       01  WS-PRES-FLD               PIC 9(1)   VALUE 0.
+       01  WS-PRES-J                 PIC 9(3)   VALUE 0.
+       01  WS-PRES-CH                PIC X(1)   VALUE SPACES.
+
+       01  WS-CONN-FLAG              PIC X(1) VALUE "N".
+           88  WS-CONNECTED                   VALUE "Y".
+
+       EXEC SQL BEGIN DECLARE SECTION END-EXEC.
+       01  HV-DB-NAME                PIC X(80).
+       01  HV-DB-USER                PIC X(32).
+       01  HV-DB-PASS                PIC X(32).
+       01  HV-CNT                    PIC S9(9) COMP-3.
+       01  HV-SUM                    PIC S9(18) COMP-3.
+       01  HV-BDATE                  PIC X(10).
+       01  HV-OFFSET                 PIC S9(9) COMP-3.
+       01  HV-LIMIT                  PIC S9(9) COMP-3.
+       01  HV-TXN                    PIC X(18).
+       01  HV-CAT                    PIC X(2).
+       01  HV-AMT                    PIC S9(18) COMP-3.
+       01  HV-DR-ACCT                PIC X(13).
+       01  HV-CR-ACCT                PIC X(13).
+       01  HV-ACCT                   PIC X(13).
+       01  HV-CUST                   PIC X(10).
+       01  HV-DATEKEY                PIC X(10).
+       01  HV-ANAME                  PIC X(60).
+       01  HV-BRANCH                 PIC X(3).
+       01  HV-PROD                   PIC X(3).
+       01  HV-ASTATUS                PIC X(1).
+       01  HV-ACUST                  PIC X(10).
+       01  HV-OPENED                 PIC X(10).
+       01  HV-DORM                   PIC X(10).
+       01  HV-BAL                    PIC S9(18) COMP-3.
+       01  HV-AVAIL                  PIC S9(18) COMP-3.
+       01  HV-HOLD                   PIC S9(18) COMP-3.
+       01  HV-TXNCNT                 PIC S9(9) COMP-3.
+       01  HV-CNAME                  PIC X(60).
+       01  HV-CKANA                  PIC X(80).
+       01  HV-CSTATUS                PIC X(1).
+       01  HV-CTIER                  PIC X(1).
+       01  HV-CPHONE                 PIC X(20).
+       01  HV-CADDR                  PIC X(120).
+       01  HV-ROLE                   PIC X(2).
+       01  HV-DR                     PIC S9(18) COMP-3.
+       01  HV-CR                     PIC S9(18) COMP-3.
+       01  HV-TS                     PIC X(19).
+       01  HV-SS                     PIC X(30).
+       01  HV-ACTION                 PIC X(50).
+       01  HV-SEV                    PIC X(1).
+       01  HV-TGT                    PIC X(20).
+       01  HV-BR-BID                 PIC X(14).
+       01  HV-BR-BD                  PIC X(10).
+       01  HV-BR-STATUS              PIC X(2).
+       01  HV-BR-STEP                PIC X(20).
+       01  HV-BR-TXNS                PIC S9(9) COMP-3.
+       01  HV-BR-ERRS                PIC S9(9) COMP-3.
+       01  HV-BR-START               PIC X(19).
+       01  HV-PF-BD                  PIC X(10).
+       01  HV-PF-CAT                 PIC X(2).
+       01  HV-PF-AMT                 PIC S9(18) COMP-3.
+       01  HV-PF-STAT                PIC X(2).
+       01  HV-PF-ACCT                PIC X(13).
+       01  HV-RV-CNT                 PIC S9(9) COMP-3.
+       01  HV-RANK                   PIC S9(9) COMP-3.
+       EXEC SQL END DECLARE SECTION END-EXEC.
+
+       EXEC SQL INCLUDE SQLCA END-EXEC.
+
+       PROCEDURE DIVISION.
+       MAIN-LOGIC.
+           PERFORM PARSE-ARGS
+           PERFORM INIT-THEME
+           PERFORM SET-TODAY
+           PERFORM REVS-INIT-ENV
+           PERFORM LOAD-MESSAGES
+           PERFORM DB-CONNECT
+           IF NOT WS-CONNECTED
+               DISPLAY "[ERROR] PG connection failed" UPON SYSERR
+               MOVE 12 TO WS-RETURN-CODE
+               GO TO PROGRAM-EXIT
+           END-IF
+           IF SCRIPTED-ON
+               PERFORM DISPATCH-TRAN
+           ELSE
+               PERFORM MENU-LOOP
+           END-IF
+           GO TO PROGRAM-EXIT.
+
+       PROGRAM-EXIT.
+           IF SCREEN-ON
+               PERFORM ANSI-RESET
+           END-IF
+           PERFORM DB-DISCONNECT
+           STOP RUN RETURNING WS-RETURN-CODE.
+
+       PARSE-ARGS.
+           ACCEPT WS-ARG-CNT FROM ARGUMENT-NUMBER
+           IF WS-ARG-CNT = 0
+               EXIT PARAGRAPH
+           END-IF
+           PERFORM VARYING WS-ARG-IDX FROM 1 BY 1
+                   UNTIL WS-ARG-IDX > WS-ARG-CNT
+               DISPLAY WS-ARG-IDX UPON ARGUMENT-NUMBER
+               ACCEPT WS-ARG-VALUE FROM ARGUMENT-VALUE
+               EVALUATE TRUE
+                   WHEN WS-ARG-VALUE(1:8) = "--screen"
+                       SET SCREEN-ON TO TRUE
+                   WHEN WS-ARG-VALUE(1:11) = "--no-screen"
+                       MOVE "N" TO WS-SCREEN-MODE
+                   WHEN WS-ARG-VALUE(1:7) = "--lang="
+                       MOVE WS-ARG-VALUE(8:2) TO WS-LANG
+                   WHEN WS-ARG-VALUE(1:7) = "--tran="
+                       MOVE WS-ARG-VALUE(8:4) TO WS-TRAN-ARG
+                       MOVE WS-ARG-VALUE(8:4) TO WS-TRAN-IN
+                       MOVE "Y" TO WS-SCRIPTED
+                   WHEN WS-ARG-VALUE(1:6) = "--key="
+                       MOVE WS-ARG-VALUE(7:13) TO WS-KEY
+                   WHEN WS-ARG-VALUE(1:7) = "--scen="
+                       MOVE WS-ARG-VALUE(8:12) TO WS-SCEN-ARG
+                   WHEN WS-ARG-VALUE(1:8) = "--theme="
+                       MOVE WS-ARG-VALUE(9:8) TO WS-THEME
+                   WHEN OTHER
+                       CONTINUE
+               END-EVALUATE
+           END-PERFORM.
+
+       SET-TODAY.
+           MOVE FUNCTION CURRENT-DATE TO WS-FUNC-DATE
+           STRING WS-FUNC-DATE(1:4) "-" WS-FUNC-DATE(5:2) "-"
+                  WS-FUNC-DATE(7:2)
+                  DELIMITED BY SIZE INTO WS-TODAY.
+
+       INIT-THEME.
+           IF WS-THEME = "green" OR WS-THEME = SPACES
+               MOVE SPACES TO WS-ARG-VALUE
+               ACCEPT WS-ARG-VALUE FROM ENVIRONMENT "CONSOLE_THEME"
+               IF WS-ARG-VALUE NOT = SPACES
+                   MOVE WS-ARG-VALUE(1:8) TO WS-THEME
+               END-IF
+           END-IF
+           IF FUNCTION LOWER-CASE(FUNCTION TRIM(WS-THEME)) = "amber"
+               MOVE "amber" TO WS-THEME
+           ELSE
+               MOVE "green" TO WS-THEME
+           END-IF
+           PERFORM SET-THEME
+           PERFORM BUILD-HBAR.
+
+       SET-THEME.
+           IF WS-THEME = "amber"
+               MOVE "38;5;214"   TO WS-CLR-BASE
+               MOVE "1;38;5;214" TO WS-CLR-HI
+               MOVE "7;38;5;214" TO WS-CLR-REV
+           ELSE
+               MOVE "32"   TO WS-CLR-BASE
+               MOVE "1;32" TO WS-CLR-HI
+               MOVE "7;32" TO WS-CLR-REV
+           END-IF.
+
+       TOGGLE-THEME.
+           IF WS-THEME = "amber"
+               MOVE "green" TO WS-THEME
+           ELSE
+               MOVE "amber" TO WS-THEME
+           END-IF
+           PERFORM SET-THEME.
+
+       BUILD-HBAR.
+           MOVE SPACES TO WS-HBAR
+           MOVE 1 TO WS-HB-PTR
+           PERFORM 78 TIMES
+               MOVE WS-BX-H TO WS-HBAR(WS-HB-PTR:3)
+               ADD 3 TO WS-HB-PTR
+           END-PERFORM.
+
+       REVS-INIT-ENV.
+           MOVE SPACES TO WS-ARG-VALUE
+           ACCEPT WS-ARG-VALUE FROM ENVIRONMENT "CONSOLE_ALLOW_WRITE"
+           IF WS-ARG-VALUE(1:3) = "YES"
+               MOVE "Y" TO WS-ALLOW-WRITE
+           ELSE
+               MOVE "N" TO WS-ALLOW-WRITE
+           END-IF
+           MOVE SPACES TO WS-OPERATOR
+           ACCEPT WS-OPERATOR FROM ENVIRONMENT "CONSOLE_OPERATOR_ID"
+           INSPECT WS-OPERATOR REPLACING ALL X"0D" BY SPACE
+           INSPECT WS-OPERATOR REPLACING ALL X"0A" BY SPACE
+           INSPECT WS-OPERATOR REPLACING ALL X"09" BY SPACE
+           MOVE FUNCTION TRIM(WS-OPERATOR) TO WS-OPERATOR
+           MOVE SPACES TO WS-REVS-SCRIPT
+           ACCEPT WS-REVS-SCRIPT FROM ENVIRONMENT "CONSOLE_REVS_SCRIPT"
+           IF WS-REVS-SCRIPT = SPACES
+               MOVE "/workspace/console/scripts/run-reverse.sh"
+                   TO WS-REVS-SCRIPT
+           END-IF
+           MOVE SPACES TO WS-ARG-VALUE
+           ACCEPT WS-ARG-VALUE FROM ENVIRONMENT "CONSOLE_REVS_DIR"
+           IF WS-ARG-VALUE NOT = SPACES
+               MOVE WS-ARG-VALUE TO WS-REVS-DIR
+           END-IF
+           STRING FUNCTION TRIM(WS-REVS-DIR) "/request.txt"
+                  DELIMITED BY SIZE INTO WS-REQ-PATH
+           STRING FUNCTION TRIM(WS-REVS-DIR) "/result.txt"
+                  DELIMITED BY SIZE INTO WS-RES-PATH
+           MOVE SPACES TO WS-POST-SCRIPT
+           ACCEPT WS-POST-SCRIPT FROM ENVIRONMENT "CONSOLE_POST_SCRIPT"
+           IF WS-POST-SCRIPT = SPACES
+               MOVE "/workspace/console/scripts/run-post.sh"
+                   TO WS-POST-SCRIPT
+           END-IF
+           MOVE SPACES TO WS-ARG-VALUE
+           ACCEPT WS-ARG-VALUE FROM ENVIRONMENT "CONSOLE_POST_DIR"
+           IF WS-ARG-VALUE NOT = SPACES
+               MOVE WS-ARG-VALUE TO WS-POST-DIR
+           END-IF
+           STRING FUNCTION TRIM(WS-POST-DIR) "/request.txt"
+                  DELIMITED BY SIZE INTO WS-PREQ-PATH
+           STRING FUNCTION TRIM(WS-POST-DIR) "/result.txt"
+                  DELIMITED BY SIZE INTO WS-PRES-PATH.
+
+       LOAD-MESSAGES.
+           MOVE SPACES TO WS-MSG-DIR
+           ACCEPT WS-MSG-DIR FROM ENVIRONMENT "CONSOLE_MSG_DIR"
+           IF WS-MSG-DIR = SPACES
+               MOVE "/workspace/console/msg" TO WS-MSG-DIR
+           END-IF
+           IF WS-LANG NOT = "ja" AND WS-LANG NOT = "en"
+               MOVE "ja" TO WS-LANG
+           END-IF
+           STRING FUNCTION TRIM(WS-MSG-DIR) "/labels-" WS-LANG ".txt"
+                  DELIMITED BY SIZE INTO WS-MSG-PATH
+           MOVE "N" TO WS-MSG-EOF
+           OPEN INPUT MSG-FILE
+           IF WS-MSG-FS NOT = "00"
+               DISPLAY "[ERROR] cannot open " FUNCTION TRIM(WS-MSG-PATH)
+                       UPON SYSERR
+               MOVE 12 TO WS-RETURN-CODE
+               GO TO PROGRAM-EXIT
+           END-IF
+           PERFORM UNTIL WS-MSG-EOF = "Y"
+               READ MSG-FILE
+                   AT END MOVE "Y" TO WS-MSG-EOF
+                   NOT AT END
+                       MOVE SPACES TO WS-MKEY WS-MVAL
+                       MOVE 1 TO WS-MPTR
+                       UNSTRING MSG-REC DELIMITED BY "="
+                           INTO WS-MKEY WITH POINTER WS-MPTR
+                       IF WS-MPTR > 1 AND WS-MPTR <= 200
+                           MOVE MSG-REC(WS-MPTR:) TO WS-MVAL
+                           PERFORM STORE-LABEL
+                       END-IF
+               END-READ
+           END-PERFORM
+           CLOSE MSG-FILE
+           PERFORM INIT-STEP-STATES.
+
+       STORE-LABEL.
+           EVALUATE FUNCTION TRIM(WS-MKEY)
+               WHEN "APPTITLE"     MOVE WS-MVAL TO LBL-APPTITLE
+               WHEN "MENUHEAD"     MOVE WS-MVAL TO LBL-MENUHEAD
+               WHEN "M_BMON"       MOVE WS-MVAL TO LBL-M-BMON
+               WHEN "M_JRNL"       MOVE WS-MVAL TO LBL-M-JRNL
+               WHEN "M_ACCT"       MOVE WS-MVAL TO LBL-M-ACCT
+               WHEN "M_AUDT"       MOVE WS-MVAL TO LBL-M-AUDT
+               WHEN "TRANPROMPT"   MOVE WS-MVAL TO LBL-TRANPROMPT
+               WHEN "PF_MENU"      MOVE WS-MVAL TO LBL-PF-MENU
+               WHEN "PF_BMON"      MOVE WS-MVAL TO LBL-PF-BMON
+               WHEN "PF_JRNL"      MOVE WS-MVAL TO LBL-PF-JRNL
+               WHEN "BMONTITLE"    MOVE WS-MVAL TO LBL-BMONTITLE
+               WHEN "JRNLTITLE"    MOVE WS-MVAL TO LBL-JRNLTITLE
+               WHEN "COL_STEP"     MOVE WS-MVAL TO LBL-COL-STEP
+               WHEN "COL_BIZ"      MOVE WS-MVAL TO LBL-COL-BIZ
+               WHEN "COL_STATE"    MOVE WS-MVAL TO LBL-COL-STATE
+               WHEN "COL_CNT"      MOVE WS-MVAL TO LBL-COL-CNT
+               WHEN "ST_WAIT"      MOVE WS-MVAL TO LBL-ST-WAIT
+               WHEN "ST_RUN"       MOVE WS-MVAL TO LBL-ST-RUN
+               WHEN "ST_DONE"      MOVE WS-MVAL TO LBL-ST-DONE
+               WHEN "ST_FAIL"      MOVE WS-MVAL TO LBL-ST-FAIL
+               WHEN "S10"          MOVE WS-MVAL TO LBL-S10
+               WHEN "S11"          MOVE WS-MVAL TO LBL-S11
+               WHEN "S12"          MOVE WS-MVAL TO LBL-S12
+               WHEN "S13"          MOVE WS-MVAL TO LBL-S13
+               WHEN "S16"          MOVE WS-MVAL TO LBL-S16
+               WHEN "S17"          MOVE WS-MVAL TO LBL-S17
+               WHEN "DRLABEL"      MOVE WS-MVAL TO LBL-DRLABEL
+               WHEN "CRLABEL"      MOVE WS-MVAL TO LBL-CRLABEL
+               WHEN "BALOK"        MOVE WS-MVAL TO LBL-BALOK
+               WHEN "BALNG"        MOVE WS-MVAL TO LBL-BALNG
+               WHEN "READY"        MOVE WS-MVAL TO LBL-READY
+               WHEN "RUNNING"      MOVE WS-MVAL TO LBL-RUNNING
+               WHEN "DONEMSG"      MOVE WS-MVAL TO LBL-DONEMSG
+               WHEN "JC_TXN"       MOVE WS-MVAL TO LBL-JC-TXN
+               WHEN "JC_CAT"       MOVE WS-MVAL TO LBL-JC-CAT
+               WHEN "JC_DR"        MOVE WS-MVAL TO LBL-JC-DR
+               WHEN "JC_CR"        MOVE WS-MVAL TO LBL-JC-CR
+               WHEN "JC_AMT"       MOVE WS-MVAL TO LBL-JC-AMT
+               WHEN "CAT10"        MOVE WS-MVAL TO LBL-CAT10
+               WHEN "CAT20"        MOVE WS-MVAL TO LBL-CAT20
+               WHEN "CAT30"        MOVE WS-MVAL TO LBL-CAT30
+               WHEN "CAT40"        MOVE WS-MVAL TO LBL-CAT40
+               WHEN "CATRV"        MOVE WS-MVAL TO LBL-CATRV
+               WHEN "INVALIDTRAN"  MOVE WS-MVAL TO LBL-INVALIDTRAN
+               WHEN "NOTIMPL"      MOVE WS-MVAL TO LBL-NOTIMPL
+               WHEN "PAGEOF"       MOVE WS-MVAL TO LBL-PAGEOF
+               WHEN "PRESSENTER"   MOVE WS-MVAL TO LBL-PRESSENTER
+               WHEN "M_CUST"       MOVE WS-MVAL TO LBL-M-CUST
+               WHEN "M_HIST"       MOVE WS-MVAL TO LBL-M-HIST
+               WHEN "KEYPROMPT"    MOVE WS-MVAL TO LBL-KEYPROMPT
+               WHEN "CMDPROMPT"    MOVE WS-MVAL TO LBL-CMDPROMPT
+               WHEN "NOTFOUND"     MOVE WS-MVAL TO LBL-NOTFOUND
+               WHEN "PF_INQ"       MOVE WS-MVAL TO LBL-PF-INQ
+               WHEN "PF_PAGE"      MOVE WS-MVAL TO LBL-PF-PAGE
+               WHEN "ACCTTITLE"    MOVE WS-MVAL TO LBL-ACCTTITLE
+               WHEN "A_ANO"        MOVE WS-MVAL TO LBL-A-ANO
+               WHEN "A_NAME"       MOVE WS-MVAL TO LBL-A-NAME
+               WHEN "A_BRANCH"     MOVE WS-MVAL TO LBL-A-BRANCH
+               WHEN "A_PROD"       MOVE WS-MVAL TO LBL-A-PROD
+               WHEN "A_STATUS"     MOVE WS-MVAL TO LBL-A-STATUS
+               WHEN "A_CUST"       MOVE WS-MVAL TO LBL-A-CUST
+               WHEN "A_OPENED"     MOVE WS-MVAL TO LBL-A-OPENED
+               WHEN "A_DORM"       MOVE WS-MVAL TO LBL-A-DORM
+               WHEN "A_BAL"        MOVE WS-MVAL TO LBL-A-BAL
+               WHEN "A_AVAIL"      MOVE WS-MVAL TO LBL-A-AVAIL
+               WHEN "A_HOLD"       MOVE WS-MVAL TO LBL-A-HOLD
+               WHEN "A_TXNCNT"     MOVE WS-MVAL TO LBL-A-TXNCNT
+               WHEN "CUSTTITLE"    MOVE WS-MVAL TO LBL-CUSTTITLE
+               WHEN "C_NAME"       MOVE WS-MVAL TO LBL-C-NAME
+               WHEN "C_KANA"       MOVE WS-MVAL TO LBL-C-KANA
+               WHEN "C_STATUS"     MOVE WS-MVAL TO LBL-C-STATUS
+               WHEN "C_TIER"       MOVE WS-MVAL TO LBL-C-TIER
+               WHEN "C_PHONE"      MOVE WS-MVAL TO LBL-C-PHONE
+               WHEN "C_ADDR"       MOVE WS-MVAL TO LBL-C-ADDR
+               WHEN "C_ACCTS"      MOVE WS-MVAL TO LBL-C-ACCTS
+               WHEN "C_TOTAL"      MOVE WS-MVAL TO LBL-C-TOTAL
+               WHEN "HISTTITLE"    MOVE WS-MVAL TO LBL-HISTTITLE
+               WHEN "H_DATE"       MOVE WS-MVAL TO LBL-H-DATE
+               WHEN "H_TXN"        MOVE WS-MVAL TO LBL-H-TXN
+               WHEN "H_ROLE"       MOVE WS-MVAL TO LBL-H-ROLE
+               WHEN "H_AMT"        MOVE WS-MVAL TO LBL-H-AMT
+               WHEN "H_BAL"        MOVE WS-MVAL TO LBL-H-BAL
+               WHEN "AUDTTITLE"    MOVE WS-MVAL TO LBL-AUDTTITLE
+               WHEN "AU_TS"        MOVE WS-MVAL TO LBL-AU-TS
+               WHEN "AU_SS"        MOVE WS-MVAL TO LBL-AU-SS
+               WHEN "AU_ACT"       MOVE WS-MVAL TO LBL-AU-ACT
+               WHEN "AU_SEV"       MOVE WS-MVAL TO LBL-AU-SEV
+               WHEN "AU_TGT"       MOVE WS-MVAL TO LBL-AU-TGT
+               WHEN "M_REVS"       MOVE WS-MVAL TO LBL-M-REVS
+               WHEN "REVSTITLE"    MOVE WS-MVAL TO LBL-REVSTITLE
+               WHEN "PF_REVS"      MOVE WS-MVAL TO LBL-PF-REVS
+               WHEN "R_TXN"        MOVE WS-MVAL TO LBL-R-TXN
+               WHEN "R_BD"         MOVE WS-MVAL TO LBL-R-BD
+               WHEN "R_CAT"        MOVE WS-MVAL TO LBL-R-CAT
+               WHEN "R_AMT"        MOVE WS-MVAL TO LBL-R-AMT
+               WHEN "R_STAT"       MOVE WS-MVAL TO LBL-R-STAT
+               WHEN "R_OPER"       MOVE WS-MVAL TO LBL-R-OPER
+               WHEN "R_REASON"     MOVE WS-MVAL TO LBL-R-REASON
+               WHEN "R_CONFIRM"    MOVE WS-MVAL TO LBL-R-CONFIRM
+               WHEN "R_READONLY"   MOVE WS-MVAL TO LBL-R-READONLY
+               WHEN "R_BADTXN"     MOVE WS-MVAL TO LBL-R-BADTXN
+               WHEN "R_NOTFOUND"   MOVE WS-MVAL TO LBL-R-NOTFOUND
+               WHEN "R_NOTREVERS"  MOVE WS-MVAL TO LBL-R-NOTREVERS
+               WHEN "R_CANCELLED"  MOVE WS-MVAL TO LBL-R-CANCELLED
+               WHEN "R_OK"         MOVE WS-MVAL TO LBL-R-OK
+               WHEN "R_ERR04"      MOVE WS-MVAL TO LBL-R-ERR04
+               WHEN "R_ERR08"      MOVE WS-MVAL TO LBL-R-ERR08
+               WHEN "R_ERR12"      MOVE WS-MVAL TO LBL-R-ERR12
+               WHEN "R_ERRTO"      MOVE WS-MVAL TO LBL-R-ERRTO
+               WHEN "R_ERRGATE"    MOVE WS-MVAL TO LBL-R-ERRGATE
+               WHEN "R_BADROW"     MOVE WS-MVAL TO LBL-R-BADROW
+               WHEN "M_POST"       MOVE WS-MVAL TO LBL-M-POST
+               WHEN "POSTTITLE"    MOVE WS-MVAL TO LBL-POSTTITLE
+               WHEN "PF_POST"      MOVE WS-MVAL TO LBL-PF-POST
+               WHEN "P_BDATE"      MOVE WS-MVAL TO LBL-P-BDATE
+               WHEN "P_CATQ"       MOVE WS-MVAL TO LBL-P-CATQ
+               WHEN "P_ACCTQ"      MOVE WS-MVAL TO LBL-P-ACCTQ
+               WHEN "P_PAYEEQ"     MOVE WS-MVAL TO LBL-P-PAYEEQ
+               WHEN "P_AMTQ"       MOVE WS-MVAL TO LBL-P-AMTQ
+               WHEN "P_HDR"        MOVE WS-MVAL TO LBL-P-HDR
+               WHEN "P_CONFIRM"    MOVE WS-MVAL TO LBL-P-CONFIRM
+               WHEN "P_READONLY"   MOVE WS-MVAL TO LBL-P-READONLY
+               WHEN "P_EMPTY"      MOVE WS-MVAL TO LBL-P-EMPTY
+               WHEN "P_FULL"       MOVE WS-MVAL TO LBL-P-FULL
+               WHEN "P_BADCAT"     MOVE WS-MVAL TO LBL-P-BADCAT
+               WHEN "P_BADACCT"    MOVE WS-MVAL TO LBL-P-BADACCT
+               WHEN "P_SYSACCT"    MOVE WS-MVAL TO LBL-P-SYSACCT
+               WHEN "P_SELFXFER"   MOVE WS-MVAL TO LBL-P-SELFXFER
+               WHEN "P_BADAMT"     MOVE WS-MVAL TO LBL-P-BADAMT
+               WHEN "P_ADDED"      MOVE WS-MVAL TO LBL-P-ADDED
+               WHEN "P_CLEARED"    MOVE WS-MVAL TO LBL-P-CLEARED
+               WHEN "P_CANCELLED"  MOVE WS-MVAL TO LBL-P-CANCELLED
+               WHEN "P_OK"         MOVE WS-MVAL TO LBL-P-OK
+               WHEN "P_ALREADY"    MOVE WS-MVAL TO LBL-P-ALREADY
+               WHEN "P_ALLREJECT"  MOVE WS-MVAL TO LBL-P-ALLREJECT
+               WHEN "P_ERR"        MOVE WS-MVAL TO LBL-P-ERR
+               WHEN "M_BRUN"       MOVE WS-MVAL TO LBL-M-BRUN
+               WHEN "BRUNTITLE"    MOVE WS-MVAL TO LBL-BRUNTITLE
+               WHEN "BR_BID"       MOVE WS-MVAL TO LBL-BR-BID
+               WHEN "BR_BD"        MOVE WS-MVAL TO LBL-BR-BD
+               WHEN "BR_STATUS"    MOVE WS-MVAL TO LBL-BR-STATUS
+               WHEN "BR_STEP"      MOVE WS-MVAL TO LBL-BR-STEP
+               WHEN "BR_TXNS"      MOVE WS-MVAL TO LBL-BR-TXNS
+               WHEN "BR_ERRS"      MOVE WS-MVAL TO LBL-BR-ERRS
+               WHEN "BR_START"     MOVE WS-MVAL TO LBL-BR-START
+               WHEN "BR_EMPTY"     MOVE WS-MVAL TO LBL-BR-EMPTY
+               WHEN "M_SCEN"       MOVE WS-MVAL TO LBL-M-SCEN
+               WHEN "SCENTITLE"    MOVE WS-MVAL TO LBL-SCENTITLE
+               WHEN "PF_SCEN"      MOVE WS-MVAL TO LBL-PF-SCEN
+               WHEN "SC_HDR"       MOVE WS-MVAL TO LBL-SC-HDR
+               WHEN "SC_DESC_RECON" MOVE WS-MVAL TO LBL-SC-DESC-RECON
+               WHEN "SC_DESC_CONC" MOVE WS-MVAL TO LBL-SC-DESC-CONC
+               WHEN "SC_DESC_SMOKE" MOVE WS-MVAL TO LBL-SC-DESC-SMOKE
+               WHEN "SC_RUNNING"   MOVE WS-MVAL TO LBL-SC-RUNNING
+               WHEN "SC_OK"        MOVE WS-MVAL TO LBL-SC-OK
+               WHEN "SC_FAIL"      MOVE WS-MVAL TO LBL-SC-FAIL
+               WHEN "SC_SCN"       MOVE WS-MVAL TO LBL-SC-SCN
+               WHEN "SC_ELAPSED"   MOVE WS-MVAL TO LBL-SC-ELAPSED
+               WHEN "SC_GATE"      MOVE WS-MVAL TO LBL-SC-GATE
+               WHEN "OIA_SYS"      MOVE WS-MVAL TO LBL-OIA-SYS
+               WHEN "OIA_READY"    MOVE WS-MVAL TO LBL-OIA-READY
+               WHEN "M_THEME"      MOVE WS-MVAL TO LBL-M-THEME
+               WHEN "WATCHING"     MOVE WS-MVAL TO LBL-WATCHING
+               WHEN "PF_BRUN"      MOVE WS-MVAL TO LBL-PF-BRUN
+               WHEN OTHER          CONTINUE
+           END-EVALUATE.
+
+       INIT-STEP-STATES.
+           MOVE LBL-ST-WAIT TO WS-ST-S10 WS-ST-S11 WS-ST-S12
+                               WS-ST-S13 WS-ST-S16 WS-ST-S17
+           MOVE SPACES TO WS-CNT-S10 WS-CNT-S11 WS-CNT-S12
+           MOVE LBL-READY TO WS-BMON-STATUS
+           MOVE SPACES TO WS-BAL-IND
+           MOVE 0 TO WS-DR-DISP WS-CR-DISP.
+
+       DB-CONNECT.
+           MOVE "banking" TO HV-DB-NAME
+           MOVE "cobol"   TO HV-DB-USER
+           MOVE "cobol"   TO HV-DB-PASS
+           EXEC SQL
+               CONNECT :HV-DB-USER IDENTIFIED BY :HV-DB-PASS
+                   USING :HV-DB-NAME
+           END-EXEC
+           IF SQLCODE = 0
+               SET WS-CONNECTED TO TRUE
+           END-IF.
+
+       DB-DISCONNECT.
+           IF WS-CONNECTED
+               EXEC SQL DISCONNECT ALL END-EXEC
+               MOVE "N" TO WS-CONN-FLAG
+           END-IF.
+
+       MENU-LOOP.
+           PERFORM UNTIL WS-EXIT-NOW
+               IF WS-PENDING-TRAN NOT = SPACES
+                   MOVE WS-PENDING-TRAN TO WS-TRAN-IN
+                   MOVE SPACES TO WS-PENDING-TRAN
+                   PERFORM DISPATCH-TRAN
+               ELSE
+                   MOVE SPACES TO WS-TRAN-IN
+                   MOVE SPACES TO WS-KEY
+                   MOVE LBL-READY TO WS-STATUS-MSG
+                   PERFORM RENDER-MENU
+                   PERFORM READ-TRAN
+                   IF WS-TRAN-IN = SPACES
+                       SET WS-EXIT-NOW TO TRUE
+                   ELSE
+                       PERFORM DISPATCH-TRAN
+                   END-IF
+               END-IF
+           END-PERFORM.
+
+       RENDER-MENU.
+           IF SCREEN-ON
+               PERFORM RENDER-MENU-ANSI
+           ELSE
+               DISPLAY " "
+               DISPLAY "==== " FUNCTION TRIM(LBL-APPTITLE) " ===="
+               DISPLAY "  BMON  " FUNCTION TRIM(LBL-M-BMON)
+               DISPLAY "  JRNL  " FUNCTION TRIM(LBL-M-JRNL)
+               DISPLAY "  REVS  " FUNCTION TRIM(LBL-M-REVS)
+               DISPLAY "  POST  " FUNCTION TRIM(LBL-M-POST)
+               DISPLAY "  BRUN  " FUNCTION TRIM(LBL-M-BRUN)
+               DISPLAY "  SCEN  " FUNCTION TRIM(LBL-M-SCEN)
+               DISPLAY "  " FUNCTION TRIM(LBL-TRANPROMPT) " "
+                       NO ADVANCING
+           END-IF.
+
+       RENDER-MENU-ANSI.
+          PERFORM ANSI-CLEAR
+         PERFORM DRAW-FRAME
+         MOVE WS-CLR-BASE TO WS-PUT-COLOR
+         MOVE 1 TO WS-AT-ROW  MOVE 3 TO WS-AT-COL
+         MOVE "PBNK001" TO WS-PUT-TEXT  PERFORM ANSI-PUT
+         MOVE WS-CLR-HI TO WS-PUT-COLOR
+         MOVE 1 TO WS-AT-ROW  MOVE 18 TO WS-AT-COL
+         MOVE LBL-APPTITLE TO WS-PUT-TEXT  PERFORM ANSI-PUT
+         MOVE WS-CLR-BASE TO WS-PUT-COLOR
+         MOVE 1 TO WS-AT-ROW  MOVE 69 TO WS-AT-COL
+         MOVE WS-TODAY TO WS-PUT-TEXT  PERFORM ANSI-PUT
+         MOVE 2 TO WS-SEP-ROW
+         PERFORM DRAW-SEP
+         MOVE 4 TO WS-AT-ROW  MOVE 4 TO WS-AT-COL
+          MOVE LBL-MENUHEAD TO WS-PUT-TEXT  PERFORM ANSI-PUT
+          MOVE 6 TO WS-AT-ROW  MOVE 6 TO WS-AT-COL
+          MOVE "BMON" TO WS-PUT-TEXT  PERFORM ANSI-PUT
+          MOVE 6 TO WS-AT-ROW  MOVE 12 TO WS-AT-COL
+          MOVE LBL-M-BMON TO WS-PUT-TEXT  PERFORM ANSI-PUT
+          MOVE 7 TO WS-AT-ROW  MOVE 6 TO WS-AT-COL
+          MOVE "JRNL" TO WS-PUT-TEXT  PERFORM ANSI-PUT
+          MOVE 7 TO WS-AT-ROW  MOVE 12 TO WS-AT-COL
+          MOVE LBL-M-JRNL TO WS-PUT-TEXT  PERFORM ANSI-PUT
+          MOVE 8 TO WS-AT-ROW  MOVE 6 TO WS-AT-COL
+          MOVE "ACCT" TO WS-PUT-TEXT  PERFORM ANSI-PUT
+          MOVE 8 TO WS-AT-ROW  MOVE 12 TO WS-AT-COL
+          MOVE LBL-M-ACCT TO WS-PUT-TEXT  PERFORM ANSI-PUT
+          MOVE 9 TO WS-AT-ROW  MOVE 6 TO WS-AT-COL
+          MOVE "CUST" TO WS-PUT-TEXT  PERFORM ANSI-PUT
+          MOVE 9 TO WS-AT-ROW  MOVE 12 TO WS-AT-COL
+          MOVE LBL-M-CUST TO WS-PUT-TEXT  PERFORM ANSI-PUT
+          MOVE 10 TO WS-AT-ROW  MOVE 6 TO WS-AT-COL
+          MOVE "HIST" TO WS-PUT-TEXT  PERFORM ANSI-PUT
+          MOVE 10 TO WS-AT-ROW  MOVE 12 TO WS-AT-COL
+          MOVE LBL-M-HIST TO WS-PUT-TEXT  PERFORM ANSI-PUT
+          MOVE 11 TO WS-AT-ROW  MOVE 6 TO WS-AT-COL
+          MOVE "AUDT" TO WS-PUT-TEXT  PERFORM ANSI-PUT
+          MOVE 11 TO WS-AT-ROW  MOVE 12 TO WS-AT-COL
+          MOVE LBL-M-AUDT TO WS-PUT-TEXT  PERFORM ANSI-PUT
+          MOVE 12 TO WS-AT-ROW  MOVE 6 TO WS-AT-COL
+          MOVE "REVS" TO WS-PUT-TEXT  PERFORM ANSI-PUT
+          MOVE 12 TO WS-AT-ROW  MOVE 12 TO WS-AT-COL
+          MOVE LBL-M-REVS TO WS-PUT-TEXT  PERFORM ANSI-PUT
+          MOVE 13 TO WS-AT-ROW  MOVE 6 TO WS-AT-COL
+          MOVE "POST" TO WS-PUT-TEXT  PERFORM ANSI-PUT
+          MOVE 13 TO WS-AT-ROW  MOVE 12 TO WS-AT-COL
+          MOVE LBL-M-POST TO WS-PUT-TEXT  PERFORM ANSI-PUT
+          MOVE 14 TO WS-AT-ROW  MOVE 6 TO WS-AT-COL
+          MOVE "BRUN" TO WS-PUT-TEXT  PERFORM ANSI-PUT
+          MOVE 14 TO WS-AT-ROW  MOVE 12 TO WS-AT-COL
+          MOVE LBL-M-BRUN TO WS-PUT-TEXT  PERFORM ANSI-PUT
+          MOVE 15 TO WS-AT-ROW  MOVE 6 TO WS-AT-COL
+          MOVE "SCEN" TO WS-PUT-TEXT  PERFORM ANSI-PUT
+          MOVE 15 TO WS-AT-ROW  MOVE 12 TO WS-AT-COL
+          MOVE LBL-M-SCEN TO WS-PUT-TEXT  PERFORM ANSI-PUT
+          MOVE 16 TO WS-AT-ROW  MOVE 6 TO WS-AT-COL
+          MOVE LBL-TRANPROMPT TO WS-PUT-TEXT  PERFORM ANSI-PUT
+          MOVE WS-CLR-BASE TO WS-PUT-COLOR
+          MOVE 18 TO WS-AT-ROW  MOVE 6 TO WS-AT-COL
+          MOVE LBL-M-THEME TO WS-PUT-TEXT  PERFORM ANSI-PUT
+          MOVE 22 TO WS-SEP-ROW
+          PERFORM DRAW-SEP
+          MOVE WS-CLR-REV TO WS-PUT-COLOR
+          MOVE 23 TO WS-AT-ROW  MOVE 2 TO WS-AT-COL
+          MOVE LBL-PF-MENU TO WS-PUT-TEXT  PERFORM ANSI-PUT
+          MOVE 23 TO WS-AT-ROW  MOVE 64 TO WS-AT-COL
+          MOVE WS-STATUS-MSG TO WS-PUT-TEXT  PERFORM ANSI-PUT
+          PERFORM RENDER-OIA.
+
+       READ-TRAN.
+          MOVE SPACES TO WS-TRAN-IN
+          PERFORM PG-COMMIT
+          IF SCREEN-ON
+              MOVE 16 TO WS-AT-ROW  MOVE 18 TO WS-AT-COL
+              PERFORM ANSI-CURSOR-AT
+              PERFORM ANSI-SHOW-CURSOR
+          END-IF
+          ACCEPT WS-TRAN-IN
+          INSPECT WS-TRAN-IN REPLACING ALL X"0D" BY SPACE
+          INSPECT WS-TRAN-IN REPLACING ALL X"0A" BY SPACE
+          INSPECT WS-TRAN-IN REPLACING ALL X"09" BY SPACE
+          MOVE FUNCTION UPPER-CASE(WS-TRAN-IN) TO WS-TRAN-IN.
+
+       DISPATCH-TRAN.
+           MOVE SPACES TO WS-ERR-MSG
+           EVALUATE FUNCTION TRIM(WS-TRAN-IN)
+               WHEN "BMON" PERFORM BMON-TRAN
+               WHEN "JRNL" PERFORM JRNL-TRAN
+               WHEN "EXIT"
+               WHEN "QUIT"
+                   SET WS-EXIT-NOW TO TRUE
+               WHEN "ACCT" PERFORM ACCT-TRAN
+               WHEN "CUST" PERFORM CUST-TRAN
+               WHEN "HIST" PERFORM HIST-TRAN
+               WHEN "AUDT" PERFORM AUDT-TRAN
+               WHEN "REVS" PERFORM REVS-TRAN
+               WHEN "POST" PERFORM POST-TRAN
+               WHEN "BRUN" PERFORM BRUN-TRAN
+               WHEN "SCEN" PERFORM SCEN-TRAN
+               WHEN "THEM"
+               WHEN "THM"
+                   PERFORM TOGGLE-THEME
+               WHEN SPACES
+                   CONTINUE
+               WHEN OTHER
+                   MOVE LBL-INVALIDTRAN TO WS-ERR-MSG
+                   IF NOT SCREEN-ON
+                       DISPLAY FUNCTION TRIM(LBL-INVALIDTRAN)
+                   END-IF
+           END-EVALUATE.
+
+       BMON-TRAN.
+           PERFORM BMON-SETUP
+           PERFORM INIT-STEP-STATES
+           MOVE "Y" TO WS-BMON-OK
+           IF SCREEN-ON
+               PERFORM ANSI-HIDE-CURSOR
+           END-IF
+           PERFORM BMON-RENDER
+           PERFORM BMON-RUN-PIPELINE
+           PERFORM BMON-REFRESH-TOTALS
+           IF WS-BMON-OK = "Y"
+               MOVE LBL-DONEMSG TO WS-BMON-STATUS
+           ELSE
+               MOVE LBL-ST-FAIL TO WS-BMON-STATUS
+           END-IF
+           PERFORM BMON-RENDER
+           IF SCREEN-ON
+               PERFORM BMON-WAIT-KEY
+           END-IF.
+
+       BMON-SETUP.
+           ACCEPT WS-STAGE-SCRIPT
+               FROM ENVIRONMENT "CONSOLE_STAGE_SCRIPT"
+           IF WS-STAGE-SCRIPT = SPACES
+               MOVE "/workspace/console/scripts/run-stage.sh"
+                   TO WS-STAGE-SCRIPT
+           END-IF
+           MOVE "/tmp/console-demo" TO WS-WORKDIR.
+
+       BMON-RUN-PIPELINE.
+          PERFORM PG-COMMIT
+          PERFORM BMON-EXEC-VERB-RESET
+           IF WS-CMD-RC NOT = 0
+               PERFORM BMON-FAIL-ABORT
+               EXIT PARAGRAPH
+           END-IF
+           PERFORM BMON-EXEC-VERB-FIXTURE
+           IF WS-CMD-RC NOT = 0
+               PERFORM BMON-FAIL-ABORT
+               EXIT PARAGRAPH
+           END-IF
+           MOVE LBL-ST-RUN TO WS-ST-S10
+           MOVE LBL-RUNNING TO WS-BMON-STATUS
+           PERFORM BMON-RENDER
+           PERFORM BMON-PAUSE
+           MOVE "s10" TO WS-CMD
+           PERFORM BMON-RUN-STAGE
+           IF WS-CMD-RC = 0
+               MOVE LBL-ST-DONE TO WS-ST-S10
+           ELSE
+               MOVE LBL-ST-FAIL TO WS-ST-S10
+               MOVE "N" TO WS-BMON-OK
+           END-IF
+           PERFORM BMON-RENDER
+           PERFORM BMON-PAUSE
+           IF WS-BMON-OK NOT = "Y"
+               EXIT PARAGRAPH
+           END-IF
+           MOVE LBL-ST-RUN TO WS-ST-S11
+           PERFORM BMON-RENDER
+           PERFORM BMON-PAUSE
+           MOVE "s11" TO WS-CMD
+           PERFORM BMON-RUN-STAGE
+           IF WS-CMD-RC = 0
+               MOVE LBL-ST-DONE TO WS-ST-S11
+           ELSE
+               MOVE LBL-ST-FAIL TO WS-ST-S11
+               MOVE "N" TO WS-BMON-OK
+           END-IF
+           PERFORM BMON-RENDER
+           PERFORM BMON-PAUSE
+           IF WS-BMON-OK NOT = "Y"
+               EXIT PARAGRAPH
+           END-IF
+           MOVE LBL-ST-RUN TO WS-ST-S12
+           PERFORM BMON-RENDER
+           PERFORM BMON-PAUSE
+           MOVE "s12" TO WS-CMD
+           PERFORM BMON-RUN-STAGE
+           IF WS-CMD-RC = 0
+               MOVE LBL-ST-DONE TO WS-ST-S12
+           ELSE
+               MOVE LBL-ST-FAIL TO WS-ST-S12
+               MOVE "N" TO WS-BMON-OK
+           END-IF
+           PERFORM BMON-COUNT-POSTED
+           PERFORM BMON-RENDER
+           PERFORM BMON-PAUSE.
+
+       BMON-EXEC-VERB-RESET.
+           MOVE SPACES TO WS-CMD
+           STRING "bash " FUNCTION TRIM(WS-STAGE-SCRIPT)
+                  " reset " FUNCTION TRIM(WS-WORKDIR)
+                  " " WS-DEMO-BATCH " " WS-DEMO-BDATE
+                  DELIMITED BY SIZE INTO WS-CMD
+           CALL "SYSTEM" USING WS-CMD
+           MOVE RETURN-CODE TO WS-CMD-RC.
+
+       BMON-EXEC-VERB-FIXTURE.
+           MOVE SPACES TO WS-CMD
+           STRING "bash " FUNCTION TRIM(WS-STAGE-SCRIPT)
+                  " fixture " FUNCTION TRIM(WS-WORKDIR)
+                  " " WS-DEMO-BATCH " " WS-DEMO-BDATE
+                  DELIMITED BY SIZE INTO WS-CMD
+           CALL "SYSTEM" USING WS-CMD
+           MOVE RETURN-CODE TO WS-CMD-RC.
+
+       BMON-RUN-STAGE.
+           MOVE FUNCTION TRIM(WS-CMD) TO WS-MKEY
+           MOVE SPACES TO WS-CMD
+           STRING "bash " FUNCTION TRIM(WS-STAGE-SCRIPT)
+                  " " FUNCTION TRIM(WS-MKEY)
+                  " " FUNCTION TRIM(WS-WORKDIR)
+                  " " WS-DEMO-BATCH " " WS-DEMO-BDATE
+                  DELIMITED BY SIZE INTO WS-CMD
+           CALL "SYSTEM" USING WS-CMD
+           MOVE RETURN-CODE TO WS-CMD-RC.
+
+       BMON-FAIL-ABORT.
+           MOVE "N" TO WS-BMON-OK
+           MOVE LBL-ST-FAIL TO WS-BMON-STATUS
+           PERFORM BMON-RENDER.
+
+       BMON-PAUSE.
+           IF SCREEN-ON
+               CALL "CBL_OC_NANOSLEEP" USING 450000000
+           END-IF.
+
+       BMON-COUNT-POSTED.
+           PERFORM PG-COMMIT
+           MOVE WS-DEMO-BDATE-PG TO HV-BDATE
+           EXEC SQL
+               SELECT COUNT(*) INTO :HV-CNT FROM transactions
+                WHERE business_date = CAST(:HV-BDATE AS DATE)
+           END-EXEC
+           MOVE HV-CNT TO WS-CNT-EDIT
+           MOVE SPACES TO WS-CNT-S12
+           STRING "txn " FUNCTION TRIM(WS-CNT-EDIT)
+                  DELIMITED BY SIZE INTO WS-CNT-S12.
+
+       BMON-REFRESH-TOTALS.
+           PERFORM PG-COMMIT
+           MOVE WS-DEMO-BDATE-PG TO HV-BDATE
+           EXEC SQL
+               SELECT COALESCE(SUM(debit_jpy),0) INTO :HV-SUM
+                 FROM postings
+                WHERE business_date = CAST(:HV-BDATE AS DATE)
+           END-EXEC
+           MOVE HV-SUM TO WS-DR-DISP
+           EXEC SQL
+               SELECT COALESCE(SUM(credit_jpy),0) INTO :HV-SUM
+                 FROM postings
+                WHERE business_date = CAST(:HV-BDATE AS DATE)
+           END-EXEC
+           MOVE HV-SUM TO WS-CR-DISP
+           IF WS-DR-DISP = WS-CR-DISP
+               MOVE LBL-BALOK TO WS-BAL-IND
+           ELSE
+               MOVE LBL-BALNG TO WS-BAL-IND
+           END-IF.
+
+       PG-COMMIT.
+           EXEC SQL COMMIT END-EXEC.
+
+       ANSI-CLEAR.
+          DISPLAY WS-ESC "[0m" WS-ESC "[2J" WS-ESC "[H"
+                  WITH NO ADVANCING.
+
+       ANSI-CURSOR-AT.
+          DISPLAY WS-ESC "[" WS-AT-ROW ";" WS-AT-COL "H"
+                  WITH NO ADVANCING.
+
+       ANSI-PUT.
+          DISPLAY WS-ESC "[" WS-AT-ROW ";" WS-AT-COL "H"
+                  WS-ESC "[" FUNCTION TRIM(WS-PUT-COLOR) "m"
+                  FUNCTION TRIM(WS-PUT-TEXT)
+                  WS-ESC "[0m"
+                  WITH NO ADVANCING.
+
+       ANSI-HIDE-CURSOR.
+          DISPLAY WS-ESC "[?25l" WITH NO ADVANCING.
+
+       ANSI-SHOW-CURSOR.
+          DISPLAY WS-ESC "[?25h" WITH NO ADVANCING.
+
+       ANSI-RESET.
+          DISPLAY WS-ESC "[0m" WS-ESC "[?25h" WS-ESC "[24;1H"
+                  WITH NO ADVANCING.
+
+       BMON-RENDER.
+           IF SCREEN-ON
+               PERFORM BMON-RENDER-ANSI
+           ELSE
+               DISPLAY "[BMON] 10 " FUNCTION TRIM(WS-ST-S10)
+                       " | 11 " FUNCTION TRIM(WS-ST-S11)
+                       " | 12 " FUNCTION TRIM(WS-ST-S12)
+                       " | " FUNCTION TRIM(WS-CNT-S12)
+           END-IF.
+
+       BMON-RENDER-ANSI.
+          PERFORM ANSI-CLEAR
+         PERFORM DRAW-FRAME
+         MOVE WS-CLR-BASE TO WS-PUT-COLOR
+         MOVE 1 TO WS-AT-ROW  MOVE 3 TO WS-AT-COL
+         MOVE "PBNK-BMON" TO WS-PUT-TEXT  PERFORM ANSI-PUT
+         MOVE WS-CLR-HI TO WS-PUT-COLOR
+         MOVE 1 TO WS-AT-ROW  MOVE 18 TO WS-AT-COL
+         MOVE LBL-BMONTITLE TO WS-PUT-TEXT  PERFORM ANSI-PUT
+         MOVE WS-CLR-BASE TO WS-PUT-COLOR
+         MOVE 1 TO WS-AT-ROW  MOVE 69 TO WS-AT-COL
+         MOVE WS-DEMO-BDATE-PG TO WS-PUT-TEXT  PERFORM ANSI-PUT
+         MOVE 2 TO WS-SEP-ROW  PERFORM DRAW-SEP
+          MOVE 4 TO WS-AT-ROW  MOVE 2 TO WS-AT-COL
+          MOVE LBL-COL-STEP TO WS-PUT-TEXT  PERFORM ANSI-PUT
+          MOVE 4 TO WS-AT-ROW  MOVE 12 TO WS-AT-COL
+          MOVE LBL-COL-BIZ TO WS-PUT-TEXT  PERFORM ANSI-PUT
+          MOVE 4 TO WS-AT-ROW  MOVE 50 TO WS-AT-COL
+          MOVE LBL-COL-STATE TO WS-PUT-TEXT  PERFORM ANSI-PUT
+          MOVE 4 TO WS-AT-ROW  MOVE 66 TO WS-AT-COL
+          MOVE LBL-COL-CNT TO WS-PUT-TEXT  PERFORM ANSI-PUT
+          MOVE 5 TO WS-SEP-ROW  PERFORM DRAW-SEP
+          MOVE "10" TO WS-STEP-NO  MOVE 6 TO WS-AT-ROW
+          MOVE LBL-S10 TO WS-PUT-TEXT  PERFORM BMON-ROW-ANSI
+          MOVE WS-ST-S10 TO WS-PUT-TEXT  PERFORM BMON-STATE-ANSI
+          MOVE WS-CNT-S10 TO WS-PUT-TEXT  PERFORM BMON-CNT-ANSI
+          MOVE "11" TO WS-STEP-NO  MOVE 7 TO WS-AT-ROW
+          MOVE LBL-S11 TO WS-PUT-TEXT  PERFORM BMON-ROW-ANSI
+          MOVE WS-ST-S11 TO WS-PUT-TEXT  PERFORM BMON-STATE-ANSI
+          MOVE WS-CNT-S11 TO WS-PUT-TEXT  PERFORM BMON-CNT-ANSI
+          MOVE "12" TO WS-STEP-NO  MOVE 8 TO WS-AT-ROW
+          MOVE LBL-S12 TO WS-PUT-TEXT  PERFORM BMON-ROW-ANSI
+          MOVE WS-ST-S12 TO WS-PUT-TEXT  PERFORM BMON-STATE-ANSI
+          MOVE WS-CNT-S12 TO WS-PUT-TEXT  PERFORM BMON-CNT-ANSI
+          MOVE "13" TO WS-STEP-NO  MOVE 9 TO WS-AT-ROW
+          MOVE LBL-S13 TO WS-PUT-TEXT  PERFORM BMON-ROW-ANSI
+          MOVE WS-ST-S13 TO WS-PUT-TEXT  PERFORM BMON-STATE-ANSI
+          MOVE "16" TO WS-STEP-NO  MOVE 10 TO WS-AT-ROW
+          MOVE LBL-S16 TO WS-PUT-TEXT  PERFORM BMON-ROW-ANSI
+          MOVE WS-ST-S16 TO WS-PUT-TEXT  PERFORM BMON-STATE-ANSI
+          MOVE "17" TO WS-STEP-NO  MOVE 11 TO WS-AT-ROW
+          MOVE LBL-S17 TO WS-PUT-TEXT  PERFORM BMON-ROW-ANSI
+          MOVE WS-ST-S17 TO WS-PUT-TEXT  PERFORM BMON-STATE-ANSI
+          MOVE 19 TO WS-SEP-ROW  PERFORM DRAW-SEP
+          MOVE 20 TO WS-AT-ROW  MOVE 4 TO WS-AT-COL
+          MOVE LBL-DRLABEL TO WS-PUT-TEXT  PERFORM ANSI-PUT
+          MOVE WS-DR-DISP TO WS-DRCR-TEXT
+          MOVE 20 TO WS-AT-ROW  MOVE 28 TO WS-AT-COL
+          MOVE WS-DRCR-TEXT TO WS-PUT-TEXT  PERFORM ANSI-PUT
+          MOVE 20 TO WS-AT-ROW  MOVE 48 TO WS-AT-COL
+          MOVE LBL-CRLABEL TO WS-PUT-TEXT  PERFORM ANSI-PUT
+          MOVE 20 TO WS-AT-ROW  MOVE 64 TO WS-AT-COL
+          MOVE WS-BAL-IND TO WS-PUT-TEXT  PERFORM ANSI-PUT
+          MOVE 22 TO WS-SEP-ROW  PERFORM DRAW-SEP
+          MOVE WS-CLR-REV TO WS-PUT-COLOR
+          MOVE 23 TO WS-AT-ROW  MOVE 2 TO WS-AT-COL
+          MOVE LBL-PF-BMON TO WS-PUT-TEXT  PERFORM ANSI-PUT
+          MOVE 23 TO WS-AT-ROW  MOVE 60 TO WS-AT-COL
+          MOVE WS-BMON-STATUS TO WS-PUT-TEXT  PERFORM ANSI-PUT
+          MOVE WS-CLR-BASE TO WS-PUT-COLOR
+          PERFORM RENDER-OIA.
+
+       BMON-ROW-ANSI.
+          MOVE WS-PUT-TEXT TO WS-ROW-BIZ
+          MOVE WS-AT-ROW TO WS-ROW-SAVE
+          MOVE 3 TO WS-AT-COL
+          MOVE WS-STEP-NO TO WS-PUT-TEXT  PERFORM ANSI-PUT
+          MOVE WS-ROW-SAVE TO WS-AT-ROW
+          MOVE 12 TO WS-AT-COL
+          MOVE WS-ROW-BIZ TO WS-PUT-TEXT  PERFORM ANSI-PUT.
+
+       BMON-STATE-ANSI.
+          MOVE WS-AT-ROW TO WS-ROW-SAVE
+          MOVE 50 TO WS-AT-COL  PERFORM ANSI-PUT
+          MOVE WS-ROW-SAVE TO WS-AT-ROW.
+
+       BMON-CNT-ANSI.
+          MOVE WS-AT-ROW TO WS-ROW-SAVE
+          MOVE 66 TO WS-AT-COL  PERFORM ANSI-PUT
+          MOVE WS-ROW-SAVE TO WS-AT-ROW.
+
+       BMON-WAIT-KEY.
+          PERFORM PG-COMMIT
+          MOVE WS-CLR-BASE TO WS-PUT-COLOR
+          MOVE 21 TO WS-AT-ROW  MOVE 2 TO WS-AT-COL
+          MOVE LBL-PRESSENTER TO WS-PUT-TEXT  PERFORM ANSI-PUT
+          MOVE 21 TO WS-AT-ROW  MOVE 40 TO WS-AT-COL
+          PERFORM ANSI-CURSOR-AT
+          PERFORM ANSI-SHOW-CURSOR
+          MOVE SPACES TO WS-TRAN-IN
+          ACCEPT WS-TRAN-IN.
+
+       JRNL-TRAN.
+           MOVE 1 TO WS-PAGE
+           PERFORM JRNL-COUNT
+           PERFORM JRNL-LOAD-PAGE
+           PERFORM JRNL-RENDER
+           IF SCREEN-ON
+               PERFORM JRNL-EVENT-LOOP
+           END-IF.
+
+       JRNL-COUNT.
+           PERFORM PG-COMMIT
+           EXEC SQL
+               SELECT COUNT(*) INTO :HV-CNT FROM transactions
+           END-EXEC
+           MOVE HV-CNT TO WS-JTOTAL.
+
+       JRNL-LOAD-PAGE.
+           COMPUTE WS-OFFSET = (WS-PAGE - 1) * WS-PAGE-SIZE
+           MOVE WS-OFFSET    TO HV-OFFSET
+           MOVE WS-PAGE-SIZE TO HV-LIMIT
+           PERFORM CLEAR-JROWS
+           MOVE 0 TO WS-ROW-IDX
+           PERFORM PG-COMMIT
+           EXEC SQL
+               DECLARE JCUR CURSOR FOR
+               SELECT t.txn_id, t.category, t.amount_jpy,
+                      COALESCE((SELECT p.account_number FROM postings p
+                                 WHERE p.txn_id = t.txn_id
+                                   AND p.debit_jpy > 0
+                                 ORDER BY p.line_no LIMIT 1), ' '),
+                      COALESCE((SELECT p.account_number FROM postings p
+                                 WHERE p.txn_id = t.txn_id
+                                   AND p.credit_jpy > 0
+                                 ORDER BY p.line_no LIMIT 1), ' ')
+                 FROM transactions t
+                ORDER BY t.txn_id
+               OFFSET :HV-OFFSET LIMIT :HV-LIMIT
+           END-EXEC
+           EXEC SQL OPEN JCUR END-EXEC
+           PERFORM UNTIL SQLCODE NOT = 0
+               EXEC SQL
+                   FETCH JCUR INTO :HV-TXN, :HV-CAT, :HV-AMT,
+                                   :HV-DR-ACCT, :HV-CR-ACCT
+               END-EXEC
+               IF SQLCODE = 0
+                   ADD 1 TO WS-ROW-IDX
+                   MOVE HV-TXN     TO JR-TXN(WS-ROW-IDX)
+                   PERFORM MAP-CAT
+                   MOVE WS-MVAL(1:10) TO JR-CAT(WS-ROW-IDX)
+                   MOVE HV-DR-ACCT TO JR-DR(WS-ROW-IDX)
+                   MOVE HV-CR-ACCT TO JR-CR(WS-ROW-IDX)
+                   MOVE HV-AMT     TO JR-AMT(WS-ROW-IDX)
+               END-IF
+           END-PERFORM
+           EXEC SQL CLOSE JCUR END-EXEC.
+
+       MAP-CAT.
+           EVALUATE HV-CAT
+               WHEN "10" MOVE LBL-CAT10 TO WS-MVAL
+               WHEN "20" MOVE LBL-CAT20 TO WS-MVAL
+               WHEN "30" MOVE LBL-CAT30 TO WS-MVAL
+               WHEN "40" MOVE LBL-CAT40 TO WS-MVAL
+               WHEN OTHER MOVE LBL-CATRV TO WS-MVAL
+           END-EVALUATE.
+
+       CLEAR-JROWS.
+           PERFORM VARYING WS-ROW-IDX FROM 1 BY 1 UNTIL WS-ROW-IDX > 10
+               MOVE SPACES TO JR-TXN(WS-ROW-IDX) JR-CAT(WS-ROW-IDX)
+                              JR-DR(WS-ROW-IDX)  JR-CR(WS-ROW-IDX)
+               MOVE 0 TO JR-AMT(WS-ROW-IDX)
+           END-PERFORM.
+
+       JRNL-RENDER.
+           MOVE SPACES TO WS-STATUS-MSG
+           STRING FUNCTION TRIM(LBL-PAGEOF) " " WS-PAGE
+                  DELIMITED BY SIZE INTO WS-STATUS-MSG
+           IF SCREEN-ON
+               PERFORM JRNL-RENDER-ANSI
+           ELSE
+               DISPLAY " "
+               DISPLAY "== " FUNCTION TRIM(LBL-JRNLTITLE)
+                       " (" FUNCTION TRIM(LBL-PAGEOF) " " WS-PAGE ")"
+               DISPLAY LBL-JC-TXN " " LBL-JC-CAT " "
+                       LBL-JC-DR " " LBL-JC-CR " " LBL-JC-AMT
+               PERFORM VARYING WS-ROW-IDX FROM 1 BY 1
+                       UNTIL WS-ROW-IDX > 10
+                   IF JR-TXN(WS-ROW-IDX) NOT = SPACES
+                       MOVE JR-AMT(WS-ROW-IDX) TO WS-PLAIN-AMT
+                       DISPLAY JR-TXN(WS-ROW-IDX) " "
+                               JR-CAT(WS-ROW-IDX) " "
+                               JR-DR(WS-ROW-IDX) " "
+                               JR-CR(WS-ROW-IDX) " "
+                               FUNCTION TRIM(WS-PLAIN-AMT)
+                   END-IF
+               END-PERFORM
+           END-IF.
+
+       JRNL-RENDER-ANSI.
+           PERFORM ANSI-CLEAR
+           PERFORM DRAW-FRAME
+           MOVE WS-CLR-BASE TO WS-PUT-COLOR
+           MOVE 1 TO WS-AT-ROW  MOVE 3 TO WS-AT-COL
+           MOVE "PBNK-JRNL" TO WS-PUT-TEXT  PERFORM ANSI-PUT
+           MOVE WS-CLR-HI TO WS-PUT-COLOR
+           MOVE 1 TO WS-AT-ROW  MOVE 18 TO WS-AT-COL
+           MOVE LBL-JRNLTITLE TO WS-PUT-TEXT  PERFORM ANSI-PUT
+           MOVE WS-CLR-BASE TO WS-PUT-COLOR
+           MOVE 2 TO WS-SEP-ROW  PERFORM DRAW-SEP
+           MOVE 4 TO WS-FLD-LINE  MOVE 2 TO WS-FLD-COL
+           MOVE LBL-JC-TXN TO WS-FLD-VAL  PERFORM RENDER-AT
+           MOVE 4 TO WS-FLD-LINE  MOVE 22 TO WS-FLD-COL
+           MOVE LBL-JC-CAT TO WS-FLD-VAL  PERFORM RENDER-AT
+           MOVE 4 TO WS-FLD-LINE  MOVE 32 TO WS-FLD-COL
+           MOVE LBL-JC-DR TO WS-FLD-VAL  PERFORM RENDER-AT
+           MOVE 4 TO WS-FLD-LINE  MOVE 50 TO WS-FLD-COL
+           MOVE LBL-JC-CR TO WS-FLD-VAL  PERFORM RENDER-AT
+           MOVE 4 TO WS-FLD-LINE  MOVE 70 TO WS-FLD-COL
+           MOVE LBL-JC-AMT TO WS-FLD-VAL  PERFORM RENDER-AT
+           MOVE 5 TO WS-SEP-ROW  PERFORM DRAW-SEP
+           PERFORM VARYING WS-ROW-IDX FROM 1 BY 1
+                   UNTIL WS-ROW-IDX > 10
+               IF JR-TXN(WS-ROW-IDX) NOT = SPACES
+                   COMPUTE WS-FLD-LINE = 5 + WS-ROW-IDX
+                   MOVE 2 TO WS-FLD-COL
+                   MOVE JR-TXN(WS-ROW-IDX) TO WS-FLD-VAL
+                   PERFORM RENDER-AT
+                   MOVE 22 TO WS-FLD-COL
+                   MOVE JR-CAT(WS-ROW-IDX) TO WS-FLD-VAL
+                   PERFORM RENDER-AT
+                   MOVE 32 TO WS-FLD-COL
+                   MOVE JR-DR(WS-ROW-IDX) TO WS-FLD-VAL
+                   PERFORM RENDER-AT
+                   MOVE 50 TO WS-FLD-COL
+                   MOVE JR-CR(WS-ROW-IDX) TO WS-FLD-VAL
+                   PERFORM RENDER-AT
+                   MOVE 68 TO WS-FLD-COL
+                   MOVE JR-AMT(WS-ROW-IDX) TO WS-FLD-VAL
+                   PERFORM RENDER-AT
+               END-IF
+           END-PERFORM
+           MOVE 21 TO WS-SEP-ROW  PERFORM DRAW-SEP
+           MOVE WS-CLR-BASE TO WS-PUT-COLOR
+           MOVE 22 TO WS-AT-ROW  MOVE 4 TO WS-AT-COL
+           MOVE LBL-CMDPROMPT TO WS-PUT-TEXT  PERFORM ANSI-PUT
+           MOVE WS-CLR-REV TO WS-PUT-COLOR
+           MOVE 23 TO WS-AT-ROW  MOVE 2 TO WS-AT-COL
+           MOVE LBL-PF-JRNL TO WS-PUT-TEXT  PERFORM ANSI-PUT
+           MOVE 23 TO WS-AT-ROW  MOVE 64 TO WS-AT-COL
+           MOVE WS-STATUS-MSG TO WS-PUT-TEXT  PERFORM ANSI-PUT
+           MOVE WS-CLR-BASE TO WS-PUT-COLOR
+           PERFORM RENDER-OIA.
+
+       JRNL-EVENT-LOOP.
+           MOVE "N" TO WS-EXIT-FLAG
+           PERFORM UNTIL WS-EXIT-FLAG = "Y"
+               PERFORM INQ-READ-CMD
+               EVALUATE WS-CMD-NORM
+                   WHEN SPACES
+                   WHEN "B"
+                   WHEN "BACK"
+                   WHEN "MENU"
+                   WHEN "EXIT"
+                   WHEN "QUIT"
+                       MOVE "Y" TO WS-EXIT-FLAG
+                   WHEN "N"
+                   WHEN "NEXT"
+                       IF (WS-PAGE * WS-PAGE-SIZE) < WS-JTOTAL
+                           ADD 1 TO WS-PAGE
+                           PERFORM JRNL-LOAD-PAGE
+                           PERFORM JRNL-RENDER
+                       END-IF
+                   WHEN "P"
+                   WHEN "PREV"
+                       IF WS-PAGE > 1
+                           SUBTRACT 1 FROM WS-PAGE
+                           PERFORM JRNL-LOAD-PAGE
+                           PERFORM JRNL-RENDER
+                       END-IF
+                   WHEN OTHER
+                       PERFORM REVS-PARSE-ROW
+                       IF WS-ROW-OK = "Y" AND
+                          JR-TXN(WS-ROW-PICK) IS NUMERIC
+                           MOVE JR-TXN(WS-ROW-PICK) TO WS-PREFILL-TXN
+                           MOVE "REVS" TO WS-PENDING-TRAN
+                           MOVE "Y" TO WS-EXIT-FLAG
+                       ELSE
+                           CONTINUE
+                       END-IF
+               END-EVALUATE
+           END-PERFORM.
+
+       NORMALIZE-KEY.
+           MOVE FUNCTION TRIM(WS-KEY) TO WS-KEY.
+
+       RENDER-FIELD.
+          MOVE WS-CLR-BASE TO WS-PUT-COLOR
+          MOVE WS-FLD-LINE TO WS-AT-ROW
+          MOVE 4 TO WS-AT-COL
+          MOVE WS-FLD-LBL TO WS-PUT-TEXT  PERFORM ANSI-PUT
+          MOVE WS-FLD-LINE TO WS-AT-ROW
+          MOVE 22 TO WS-AT-COL
+          MOVE WS-FLD-VAL TO WS-PUT-TEXT  PERFORM ANSI-PUT.
+
+       RENDER-AT.
+          MOVE WS-FLD-LINE TO WS-AT-ROW
+          MOVE WS-FLD-COL TO WS-AT-COL
+          MOVE WS-FLD-VAL TO WS-PUT-TEXT
+          PERFORM ANSI-PUT.
+
+       RENDER-NOTFOUND-SCREEN.
+          MOVE "1;31" TO WS-PUT-COLOR
+          MOVE 6 TO WS-AT-ROW  MOVE 4 TO WS-AT-COL
+          MOVE LBL-NOTFOUND TO WS-PUT-TEXT  PERFORM ANSI-PUT
+          MOVE WS-CLR-BASE TO WS-PUT-COLOR.
+
+       RENDER-HDR-ANSI.
+          PERFORM ANSI-CLEAR
+          PERFORM DRAW-FRAME
+          MOVE WS-CLR-BASE TO WS-PUT-COLOR
+          MOVE 1 TO WS-AT-ROW  MOVE 3 TO WS-AT-COL
+          MOVE WS-SCR-PFX TO WS-PUT-TEXT  PERFORM ANSI-PUT
+          MOVE WS-CLR-HI TO WS-PUT-COLOR
+          MOVE 1 TO WS-AT-ROW  MOVE 18 TO WS-AT-COL
+          MOVE WS-SCR-TITLE TO WS-PUT-TEXT  PERFORM ANSI-PUT
+          MOVE WS-CLR-BASE TO WS-PUT-COLOR
+          MOVE 1 TO WS-AT-ROW  MOVE 69 TO WS-AT-COL
+          MOVE WS-TODAY TO WS-PUT-TEXT  PERFORM ANSI-PUT
+          MOVE 2 TO WS-SEP-ROW
+          PERFORM DRAW-SEP.
+
+       RENDER-INQ-FOOT-ANSI.
+          MOVE 21 TO WS-SEP-ROW
+          PERFORM DRAW-SEP
+          MOVE WS-CLR-BASE TO WS-PUT-COLOR
+          MOVE 22 TO WS-AT-ROW  MOVE 4 TO WS-AT-COL
+          MOVE LBL-KEYPROMPT TO WS-PUT-TEXT  PERFORM ANSI-PUT
+          MOVE WS-CLR-REV TO WS-PUT-COLOR
+          MOVE 23 TO WS-AT-ROW  MOVE 2 TO WS-AT-COL
+          MOVE WS-SCR-PF TO WS-PUT-TEXT  PERFORM ANSI-PUT
+          MOVE 23 TO WS-AT-ROW  MOVE 64 TO WS-AT-COL
+          MOVE WS-STATUS-MSG TO WS-PUT-TEXT  PERFORM ANSI-PUT
+          PERFORM RENDER-OIA
+          MOVE WS-CLR-BASE TO WS-PUT-COLOR.
+
+       DRAW-FRAME.
+          MOVE WS-CLR-BASE TO WS-PUT-COLOR
+          MOVE 1 TO WS-AT-ROW  MOVE 1 TO WS-AT-COL
+          MOVE WS-BX-TL TO WS-PUT-TEXT  PERFORM ANSI-PUT
+          MOVE 1 TO WS-AT-ROW  MOVE 80 TO WS-AT-COL
+          MOVE WS-BX-TR TO WS-PUT-TEXT  PERFORM ANSI-PUT
+          PERFORM VARYING WS-FRAME-ROW FROM 2 BY 1
+                  UNTIL WS-FRAME-ROW > 22
+              MOVE WS-FRAME-ROW TO WS-AT-ROW  MOVE 1 TO WS-AT-COL
+              MOVE WS-BX-V TO WS-PUT-TEXT  PERFORM ANSI-PUT
+              MOVE WS-FRAME-ROW TO WS-AT-ROW  MOVE 80 TO WS-AT-COL
+              MOVE WS-BX-V TO WS-PUT-TEXT  PERFORM ANSI-PUT
+          END-PERFORM
+          MOVE 23 TO WS-AT-ROW  MOVE 1 TO WS-AT-COL
+          MOVE WS-BX-BL TO WS-PUT-TEXT  PERFORM ANSI-PUT
+          MOVE 23 TO WS-AT-ROW  MOVE 80 TO WS-AT-COL
+          MOVE WS-BX-BR TO WS-PUT-TEXT  PERFORM ANSI-PUT.
+
+       DRAW-SEP.
+          MOVE WS-CLR-BASE TO WS-PUT-COLOR
+          MOVE WS-SEP-ROW TO WS-AT-ROW  MOVE 1 TO WS-AT-COL
+          MOVE WS-BX-TEEL TO WS-PUT-TEXT  PERFORM ANSI-PUT
+          MOVE WS-SEP-ROW TO WS-AT-ROW  MOVE 2 TO WS-AT-COL
+          MOVE WS-HBAR TO WS-PUT-TEXT  PERFORM ANSI-PUT
+          MOVE WS-SEP-ROW TO WS-AT-ROW  MOVE 80 TO WS-AT-COL
+          MOVE WS-BX-TEER TO WS-PUT-TEXT  PERFORM ANSI-PUT.
+
+       BUILD-OIA-CLOCK.
+          MOVE FUNCTION CURRENT-DATE TO WS-FUNC-DATE
+          MOVE SPACES TO WS-OIA-CLOCK
+          STRING WS-FUNC-DATE(1:4) "-" WS-FUNC-DATE(5:2) "-"
+                 WS-FUNC-DATE(7:2) " "
+                 WS-FUNC-DATE(9:2) ":" WS-FUNC-DATE(11:2)
+                 DELIMITED BY SIZE INTO WS-OIA-CLOCK.
+
+       RENDER-OIA.
+          MOVE WS-CLR-BASE TO WS-PUT-COLOR
+          MOVE 24 TO WS-AT-ROW  MOVE 2 TO WS-AT-COL
+          MOVE LBL-OIA-SYS TO WS-PUT-TEXT  PERFORM ANSI-PUT
+          IF WS-ERR-MSG NOT = SPACES
+              MOVE "1;31" TO WS-PUT-COLOR
+              MOVE 24 TO WS-AT-ROW  MOVE 14 TO WS-AT-COL
+              MOVE WS-ERR-MSG TO WS-PUT-TEXT  PERFORM ANSI-PUT
+          ELSE
+              MOVE WS-CLR-HI TO WS-PUT-COLOR
+              MOVE 24 TO WS-AT-ROW  MOVE 14 TO WS-AT-COL
+              MOVE LBL-OIA-READY TO WS-PUT-TEXT  PERFORM ANSI-PUT
+          END-IF
+          PERFORM BUILD-OIA-CLOCK
+          MOVE WS-CLR-BASE TO WS-PUT-COLOR
+          MOVE 24 TO WS-AT-ROW  MOVE 63 TO WS-AT-COL
+          MOVE WS-OIA-CLOCK TO WS-PUT-TEXT  PERFORM ANSI-PUT.
+
+       INQ-READ-CMD.
+          PERFORM PG-COMMIT
+          MOVE 22 TO WS-AT-ROW  MOVE 22 TO WS-AT-COL
+          PERFORM ANSI-CURSOR-AT
+          PERFORM ANSI-SHOW-CURSOR
+          MOVE SPACES TO WS-CMD-LINE
+          ACCEPT WS-CMD-LINE
+          INSPECT WS-CMD-LINE REPLACING ALL X"0D" BY SPACE
+          INSPECT WS-CMD-LINE REPLACING ALL X"0A" BY SPACE
+          INSPECT WS-CMD-LINE REPLACING ALL X"09" BY SPACE
+          MOVE FUNCTION UPPER-CASE(FUNCTION TRIM(WS-CMD-LINE))
+               TO WS-CMD-NORM
+          IF SCREEN-ON
+              PERFORM ANSI-HIDE-CURSOR
+          END-IF.
+
+       ACCT-TRAN.
+           MOVE "PBNK-ACCT"   TO WS-SCR-PFX
+           MOVE LBL-ACCTTITLE TO WS-SCR-TITLE
+           MOVE LBL-PF-INQ    TO WS-SCR-PF
+           MOVE SPACES        TO WS-ERR-MSG WS-STATUS-MSG
+           IF WS-KEY = SPACES
+               MOVE "0010010000001" TO WS-KEY
+           END-IF
+           PERFORM ACCT-QUERY
+           PERFORM ACCT-RENDER
+           IF SCREEN-ON
+               PERFORM ACCT-EVENT-LOOP
+           END-IF.
+
+       ACCT-QUERY.
+           MOVE "N" TO WS-NF-FLAG
+           PERFORM NORMALIZE-KEY
+           MOVE WS-KEY TO HV-ACCT
+           PERFORM PG-COMMIT
+           EXEC SQL
+               SELECT a.acct_name, a.branch_code, a.product_code,
+                      a.acct_status, a.cust_id,
+                      COALESCE(TO_CHAR(a.opened_date,
+                               'YYYY-MM-DD'),''),
+                      COALESCE(TO_CHAR(a.dormancy_date,
+                               'YYYY-MM-DD'),''),
+                      COALESCE(b.balance_jpy,0),
+                      COALESCE(b.available_jpy,0),
+                      COALESCE(b.hold_jpy,0)
+                 INTO :HV-ANAME, :HV-BRANCH, :HV-PROD,
+                      :HV-ASTATUS, :HV-ACUST,
+                      :HV-OPENED, :HV-DORM,
+                      :HV-BAL, :HV-AVAIL, :HV-HOLD
+                 FROM accounts a
+                 LEFT JOIN balances b
+                   ON b.account_number = a.acct_number
+                WHERE a.acct_number = :HV-ACCT
+           END-EXEC
+           IF SQLCODE NOT = 0
+               MOVE "Y" TO WS-NF-FLAG
+               EXIT PARAGRAPH
+           END-IF
+           PERFORM PG-COMMIT
+           EXEC SQL
+               SELECT COUNT(*) INTO :HV-TXNCNT
+                 FROM transactions
+                WHERE account_number = :HV-ACCT
+                   OR counter_account_number = :HV-ACCT
+           END-EXEC
+           MOVE HV-ANAME   TO WS-A-NAME
+           MOVE HV-BRANCH  TO WS-A-BRANCH
+           MOVE HV-PROD    TO WS-A-PROD
+           MOVE HV-ASTATUS TO WS-A-STATUS
+           MOVE HV-ACUST   TO WS-A-CUST
+           MOVE HV-OPENED  TO WS-A-OPENED
+           MOVE HV-DORM    TO WS-A-DORM
+           MOVE HV-BAL     TO WS-A-BAL-E
+           MOVE HV-AVAIL   TO WS-A-AVAIL-E
+           MOVE HV-HOLD    TO WS-A-HOLD-E
+           MOVE HV-TXNCNT  TO WS-A-TXNCNT-E.
+
+       ACCT-RENDER.
+           IF SCREEN-ON
+               PERFORM RENDER-HDR-ANSI
+               IF WS-NF-FLAG = "Y"
+                   PERFORM RENDER-NOTFOUND-SCREEN
+               ELSE
+                   PERFORM ACCT-RENDER-SCREEN
+               END-IF
+               PERFORM RENDER-INQ-FOOT-ANSI
+           ELSE
+               PERFORM ACCT-RENDER-PLAIN
+           END-IF.
+
+       ACCT-RENDER-SCREEN.
+           MOVE LBL-A-ANO TO WS-FLD-LBL
+           MOVE WS-KEY TO WS-FLD-VAL
+           MOVE 4 TO WS-FLD-LINE
+           PERFORM RENDER-FIELD
+           MOVE LBL-A-NAME TO WS-FLD-LBL
+           MOVE WS-A-NAME TO WS-FLD-VAL
+           MOVE 5 TO WS-FLD-LINE
+           PERFORM RENDER-FIELD
+           MOVE LBL-A-BRANCH TO WS-FLD-LBL
+           MOVE WS-A-BRANCH TO WS-FLD-VAL
+           MOVE 6 TO WS-FLD-LINE
+           PERFORM RENDER-FIELD
+           MOVE LBL-A-PROD TO WS-FLD-LBL
+           MOVE WS-A-PROD TO WS-FLD-VAL
+           MOVE 7 TO WS-FLD-LINE
+           PERFORM RENDER-FIELD
+           MOVE LBL-A-STATUS TO WS-FLD-LBL
+           MOVE WS-A-STATUS TO WS-FLD-VAL
+           MOVE 8 TO WS-FLD-LINE
+           PERFORM RENDER-FIELD
+           MOVE LBL-A-CUST TO WS-FLD-LBL
+           MOVE WS-A-CUST TO WS-FLD-VAL
+           MOVE 9 TO WS-FLD-LINE
+           PERFORM RENDER-FIELD
+           MOVE LBL-A-OPENED TO WS-FLD-LBL
+           MOVE WS-A-OPENED TO WS-FLD-VAL
+           MOVE 10 TO WS-FLD-LINE
+           PERFORM RENDER-FIELD
+           MOVE LBL-A-DORM TO WS-FLD-LBL
+           MOVE WS-A-DORM TO WS-FLD-VAL
+           MOVE 11 TO WS-FLD-LINE
+           PERFORM RENDER-FIELD
+           MOVE LBL-A-BAL TO WS-FLD-LBL
+           MOVE WS-A-BAL-E TO WS-FLD-VAL
+           MOVE 13 TO WS-FLD-LINE
+           PERFORM RENDER-FIELD
+           MOVE LBL-A-AVAIL TO WS-FLD-LBL
+           MOVE WS-A-AVAIL-E TO WS-FLD-VAL
+           MOVE 14 TO WS-FLD-LINE
+           PERFORM RENDER-FIELD
+           MOVE LBL-A-HOLD TO WS-FLD-LBL
+           MOVE WS-A-HOLD-E TO WS-FLD-VAL
+           MOVE 15 TO WS-FLD-LINE
+           PERFORM RENDER-FIELD
+           MOVE LBL-A-TXNCNT TO WS-FLD-LBL
+           MOVE WS-A-TXNCNT-E TO WS-FLD-VAL
+           MOVE 16 TO WS-FLD-LINE
+           PERFORM RENDER-FIELD.
+
+       ACCT-RENDER-PLAIN.
+           IF WS-NF-FLAG = "Y"
+               DISPLAY FUNCTION TRIM(LBL-NOTFOUND)
+               EXIT PARAGRAPH
+           END-IF
+           DISPLAY " "
+           DISPLAY "== " FUNCTION TRIM(LBL-ACCTTITLE)
+           DISPLAY FUNCTION TRIM(LBL-A-ANO) " "
+                   FUNCTION TRIM(WS-KEY)
+           DISPLAY FUNCTION TRIM(LBL-A-NAME) " "
+                   FUNCTION TRIM(WS-A-NAME)
+           DISPLAY FUNCTION TRIM(LBL-A-BRANCH) " " WS-A-BRANCH
+                   "  " FUNCTION TRIM(LBL-A-PROD) " " WS-A-PROD
+           DISPLAY FUNCTION TRIM(LBL-A-STATUS) " " WS-A-STATUS
+                   "  " FUNCTION TRIM(LBL-A-CUST) " " WS-A-CUST
+           DISPLAY FUNCTION TRIM(LBL-A-OPENED) " " WS-A-OPENED
+                   "  " FUNCTION TRIM(LBL-A-DORM) " " WS-A-DORM
+           DISPLAY FUNCTION TRIM(LBL-A-BAL) " "
+                   FUNCTION TRIM(WS-A-BAL-E)
+           DISPLAY FUNCTION TRIM(LBL-A-AVAIL) " "
+                   FUNCTION TRIM(WS-A-AVAIL-E)
+           DISPLAY FUNCTION TRIM(LBL-A-HOLD) " "
+                   FUNCTION TRIM(WS-A-HOLD-E)
+           DISPLAY FUNCTION TRIM(LBL-A-TXNCNT) " "
+                   FUNCTION TRIM(WS-A-TXNCNT-E).
+
+       ACCT-EVENT-LOOP.
+           MOVE "N" TO WS-EXIT-FLAG
+           PERFORM UNTIL WS-EXIT-FLAG = "Y"
+               PERFORM INQ-READ-CMD
+               EVALUATE WS-CMD-NORM
+                   WHEN SPACES
+                   WHEN "B"
+                   WHEN "BACK"
+                   WHEN "MENU"
+                   WHEN "EXIT"
+                   WHEN "QUIT"
+                       MOVE "Y" TO WS-EXIT-FLAG
+                   WHEN OTHER
+                       MOVE FUNCTION TRIM(WS-CMD-LINE) TO WS-KEY
+                       PERFORM ACCT-QUERY
+                       PERFORM ACCT-RENDER
+               END-EVALUATE
+           END-PERFORM.
+
+       CUST-TRAN.
+           MOVE "PBNK-CUST"   TO WS-SCR-PFX
+           MOVE LBL-CUSTTITLE TO WS-SCR-TITLE
+           MOVE LBL-PF-INQ    TO WS-SCR-PF
+           MOVE SPACES        TO WS-ERR-MSG WS-STATUS-MSG
+           IF WS-KEY = SPACES
+               MOVE "0000000001" TO WS-KEY
+           END-IF
+           PERFORM CUST-QUERY
+           PERFORM CUST-RENDER
+           IF SCREEN-ON
+               PERFORM CUST-EVENT-LOOP
+           END-IF.
+
+       CUST-QUERY.
+           MOVE "N" TO WS-NF-FLAG
+           PERFORM NORMALIZE-KEY
+           MOVE WS-KEY(1:10) TO HV-CUST
+           PERFORM PG-COMMIT
+           EXEC SQL
+               SELECT cust_name, cust_name_kana, cust_status,
+                      tier, COALESCE(phone,''),
+                      COALESCE(address,'')
+                 INTO :HV-CNAME, :HV-CKANA, :HV-CSTATUS,
+                      :HV-CTIER, :HV-CPHONE, :HV-CADDR
+                 FROM customers
+                WHERE cust_id = :HV-CUST
+           END-EXEC
+           IF SQLCODE NOT = 0
+               MOVE "Y" TO WS-NF-FLAG
+               EXIT PARAGRAPH
+           END-IF
+           MOVE HV-CNAME   TO WS-C-NAME
+           MOVE HV-CKANA   TO WS-C-KANA
+           MOVE HV-CSTATUS TO WS-C-STATUS
+           MOVE HV-CTIER   TO WS-C-TIER
+           MOVE HV-CPHONE  TO WS-C-PHONE
+           MOVE HV-CADDR   TO WS-C-ADDR
+           PERFORM CUST-LOAD-ACCTS.
+
+       CUST-LOAD-ACCTS.
+           MOVE 0 TO WS-C-ACNT
+           MOVE 0 TO WS-C-TOTAL-RAW
+           PERFORM CLEAR-CAROWS
+           MOVE 0 TO WS-ROW-IDX
+           PERFORM PG-COMMIT
+           EXEC SQL
+               DECLARE CCUR CURSOR FOR
+               SELECT a.acct_number, a.product_code,
+                      a.acct_status, COALESCE(b.balance_jpy,0)
+                 FROM accounts a
+                 LEFT JOIN balances b
+                   ON b.account_number = a.acct_number
+                WHERE a.cust_id = :HV-CUST
+                ORDER BY a.acct_number
+                LIMIT 12
+           END-EXEC
+           EXEC SQL OPEN CCUR END-EXEC
+           PERFORM UNTIL SQLCODE NOT = 0
+               EXEC SQL
+                   FETCH CCUR INTO :HV-ACCT, :HV-PROD,
+                                   :HV-ASTATUS, :HV-BAL
+               END-EXEC
+               IF SQLCODE = 0
+                   ADD 1 TO WS-ROW-IDX
+                   MOVE HV-ACCT     TO CA-ANO(WS-ROW-IDX)
+                   MOVE HV-PROD     TO CA-PROD(WS-ROW-IDX)
+                   MOVE HV-ASTATUS  TO CA-STATUS(WS-ROW-IDX)
+                   MOVE HV-BAL      TO WS-AMT-EDIT
+                   MOVE WS-AMT-EDIT TO CA-BAL(WS-ROW-IDX)
+                   ADD HV-BAL TO WS-C-TOTAL-RAW
+               END-IF
+           END-PERFORM
+           EXEC SQL CLOSE CCUR END-EXEC
+           MOVE WS-ROW-IDX TO WS-C-ACNT
+           MOVE WS-C-TOTAL-RAW TO WS-C-TOTAL-E.
+
+       CLEAR-CAROWS.
+           PERFORM VARYING WS-ROW-IDX FROM 1 BY 1
+                   UNTIL WS-ROW-IDX > 12
+               MOVE SPACES TO CA-ANO(WS-ROW-IDX)
+                              CA-PROD(WS-ROW-IDX)
+                              CA-STATUS(WS-ROW-IDX)
+                              CA-BAL(WS-ROW-IDX)
+           END-PERFORM.
+
+       CUST-RENDER.
+           IF SCREEN-ON
+               PERFORM RENDER-HDR-ANSI
+               IF WS-NF-FLAG = "Y"
+                   PERFORM RENDER-NOTFOUND-SCREEN
+               ELSE
+                   PERFORM CUST-RENDER-SCREEN
+               END-IF
+               PERFORM RENDER-INQ-FOOT-ANSI
+           ELSE
+               PERFORM CUST-RENDER-PLAIN
+           END-IF.
+
+       CUST-RENDER-SCREEN.
+           MOVE LBL-A-CUST TO WS-FLD-LBL
+           MOVE WS-KEY TO WS-FLD-VAL
+           MOVE 4 TO WS-FLD-LINE
+           PERFORM RENDER-FIELD
+           MOVE LBL-C-NAME TO WS-FLD-LBL
+           MOVE WS-C-NAME TO WS-FLD-VAL
+           MOVE 5 TO WS-FLD-LINE
+           PERFORM RENDER-FIELD
+           MOVE LBL-C-KANA TO WS-FLD-LBL
+           MOVE WS-C-KANA TO WS-FLD-VAL
+           MOVE 6 TO WS-FLD-LINE
+           PERFORM RENDER-FIELD
+           MOVE LBL-C-STATUS TO WS-FLD-LBL
+           MOVE WS-C-STATUS TO WS-FLD-VAL
+           MOVE 7 TO WS-FLD-LINE
+           PERFORM RENDER-FIELD
+           MOVE LBL-C-TIER TO WS-FLD-LBL
+           MOVE WS-C-TIER TO WS-FLD-VAL
+           MOVE 8 TO WS-FLD-LINE
+           PERFORM RENDER-FIELD
+           MOVE LBL-C-PHONE TO WS-FLD-LBL
+           MOVE WS-C-PHONE TO WS-FLD-VAL
+           MOVE 9 TO WS-FLD-LINE
+           PERFORM RENDER-FIELD
+           MOVE LBL-C-ADDR TO WS-FLD-LBL
+           MOVE WS-C-ADDR TO WS-FLD-VAL
+           MOVE 10 TO WS-FLD-LINE
+           PERFORM RENDER-FIELD
+           MOVE WS-CLR-HI TO WS-PUT-COLOR
+           MOVE 12 TO WS-FLD-LINE  MOVE 4 TO WS-FLD-COL
+           MOVE LBL-C-ACCTS TO WS-FLD-VAL  PERFORM RENDER-AT
+           MOVE WS-CLR-BASE TO WS-PUT-COLOR
+           PERFORM VARYING WS-ROW-IDX FROM 1 BY 1
+                   UNTIL WS-ROW-IDX > WS-C-ACNT
+               COMPUTE WS-FLD-LINE = 12 + WS-ROW-IDX
+               MOVE 6 TO WS-FLD-COL
+               MOVE CA-ANO(WS-ROW-IDX) TO WS-FLD-VAL
+               PERFORM RENDER-AT
+               MOVE 22 TO WS-FLD-COL
+               MOVE CA-PROD(WS-ROW-IDX) TO WS-FLD-VAL
+               PERFORM RENDER-AT
+               MOVE 28 TO WS-FLD-COL
+               MOVE CA-STATUS(WS-ROW-IDX) TO WS-FLD-VAL
+               PERFORM RENDER-AT
+               MOVE 34 TO WS-FLD-COL
+               MOVE CA-BAL(WS-ROW-IDX) TO WS-FLD-VAL
+               PERFORM RENDER-AT
+           END-PERFORM
+           MOVE LBL-C-TOTAL TO WS-FLD-LBL
+           MOVE WS-C-TOTAL-E TO WS-FLD-VAL
+           MOVE 20 TO WS-FLD-LINE
+           PERFORM RENDER-FIELD.
+
+       CUST-RENDER-PLAIN.
+           IF WS-NF-FLAG = "Y"
+               DISPLAY FUNCTION TRIM(LBL-NOTFOUND)
+               EXIT PARAGRAPH
+           END-IF
+           DISPLAY " "
+           DISPLAY "== " FUNCTION TRIM(LBL-CUSTTITLE)
+           DISPLAY FUNCTION TRIM(LBL-A-CUST) " "
+                   FUNCTION TRIM(WS-KEY)
+           DISPLAY FUNCTION TRIM(LBL-C-NAME) " "
+                   FUNCTION TRIM(WS-C-NAME)
+           DISPLAY FUNCTION TRIM(LBL-C-KANA) " "
+                   FUNCTION TRIM(WS-C-KANA)
+           DISPLAY FUNCTION TRIM(LBL-C-STATUS) " " WS-C-STATUS
+                   "  " FUNCTION TRIM(LBL-C-TIER) " " WS-C-TIER
+           DISPLAY FUNCTION TRIM(LBL-C-PHONE) " "
+                   FUNCTION TRIM(WS-C-PHONE)
+           DISPLAY FUNCTION TRIM(LBL-C-ADDR) " "
+                   FUNCTION TRIM(WS-C-ADDR)
+           DISPLAY FUNCTION TRIM(LBL-C-ACCTS) ":"
+           PERFORM VARYING WS-ROW-IDX FROM 1 BY 1
+                   UNTIL WS-ROW-IDX > WS-C-ACNT
+               DISPLAY "  " CA-ANO(WS-ROW-IDX) " "
+                       CA-PROD(WS-ROW-IDX) " "
+                       CA-STATUS(WS-ROW-IDX) " "
+                       FUNCTION TRIM(CA-BAL(WS-ROW-IDX))
+           END-PERFORM
+           DISPLAY FUNCTION TRIM(LBL-C-TOTAL) " "
+                   FUNCTION TRIM(WS-C-TOTAL-E).
+
+       CUST-EVENT-LOOP.
+           MOVE "N" TO WS-EXIT-FLAG
+           PERFORM UNTIL WS-EXIT-FLAG = "Y"
+               PERFORM INQ-READ-CMD
+               EVALUATE WS-CMD-NORM
+                   WHEN SPACES
+                   WHEN "B"
+                   WHEN "BACK"
+                   WHEN "MENU"
+                   WHEN "EXIT"
+                   WHEN "QUIT"
+                       MOVE "Y" TO WS-EXIT-FLAG
+                   WHEN OTHER
+                       MOVE FUNCTION TRIM(WS-CMD-LINE) TO WS-KEY
+                       PERFORM CUST-QUERY
+                       PERFORM CUST-RENDER
+               END-EVALUATE
+           END-PERFORM.
+
+       HIST-TRAN.
+           MOVE "PBNK-HIST"   TO WS-SCR-PFX
+           MOVE LBL-HISTTITLE TO WS-SCR-TITLE
+           MOVE LBL-PF-PAGE   TO WS-SCR-PF
+           MOVE SPACES        TO WS-ERR-MSG
+           IF WS-KEY = SPACES
+               MOVE "0010010000001" TO WS-KEY
+           END-IF
+           MOVE 1 TO WS-PAGE
+           PERFORM HIST-COUNT
+           PERFORM HIST-LOAD-PAGE
+           PERFORM HIST-RENDER
+           IF SCREEN-ON
+               PERFORM HIST-EVENT-LOOP
+           END-IF.
+
+       HIST-COUNT.
+           MOVE "N" TO WS-NF-FLAG
+           PERFORM NORMALIZE-KEY
+           MOVE WS-KEY TO HV-ACCT
+           MOVE 0 TO WS-JTOTAL
+           PERFORM PG-COMMIT
+           EXEC SQL
+               SELECT COUNT(*) INTO :HV-CNT
+                 FROM postings
+                WHERE account_number = :HV-ACCT
+           END-EXEC
+           MOVE HV-CNT TO WS-JTOTAL
+           PERFORM PG-COMMIT
+           EXEC SQL
+               SELECT COALESCE(balance_jpy,0) INTO :HV-BAL
+                 FROM balances
+                WHERE account_number = :HV-ACCT
+           END-EXEC
+           IF SQLCODE = 0
+               MOVE HV-BAL TO WS-H-BAL-E
+           ELSE
+               MOVE 0 TO WS-H-BAL-E
+           END-IF
+           IF WS-JTOTAL = 0
+               MOVE "Y" TO WS-NF-FLAG
+           END-IF.
+
+       HIST-LOAD-PAGE.
+           COMPUTE WS-OFFSET = (WS-PAGE - 1) * WS-PAGE-SIZE
+           MOVE WS-OFFSET    TO HV-OFFSET
+           MOVE WS-PAGE-SIZE TO HV-LIMIT
+           PERFORM CLEAR-HROWS
+           MOVE 0 TO WS-ROW-IDX
+           PERFORM PG-COMMIT
+           EXEC SQL
+               DECLARE HCUR CURSOR FOR
+               SELECT TO_CHAR(business_date,'YYYY-MM-DD'),
+                      txn_id, posting_role,
+                      COALESCE(debit_jpy,0),
+                      COALESCE(credit_jpy,0)
+                 FROM postings
+                WHERE account_number = :HV-ACCT
+                ORDER BY business_date, txn_id, line_no
+                OFFSET :HV-OFFSET LIMIT :HV-LIMIT
+           END-EXEC
+           EXEC SQL OPEN HCUR END-EXEC
+           PERFORM UNTIL SQLCODE NOT = 0
+               EXEC SQL
+                   FETCH HCUR INTO :HV-DATEKEY, :HV-TXN,
+                                   :HV-ROLE, :HV-DR, :HV-CR
+               END-EXEC
+               IF SQLCODE = 0
+                   ADD 1 TO WS-ROW-IDX
+                   MOVE HV-DATEKEY TO HR-DATE(WS-ROW-IDX)
+                   MOVE HV-TXN     TO HR-TXN(WS-ROW-IDX)
+                   MOVE HV-ROLE    TO HR-ROLE(WS-ROW-IDX)
+                   ADD HV-DR HV-CR GIVING WS-AMT-EDIT
+                   MOVE WS-AMT-EDIT TO HR-AMT(WS-ROW-IDX)
+               END-IF
+           END-PERFORM
+           EXEC SQL CLOSE HCUR END-EXEC.
+
+       CLEAR-HROWS.
+           PERFORM VARYING WS-ROW-IDX FROM 1 BY 1
+                   UNTIL WS-ROW-IDX > 10
+               MOVE SPACES TO HR-DATE(WS-ROW-IDX)
+                              HR-TXN(WS-ROW-IDX)
+                              HR-ROLE(WS-ROW-IDX)
+                              HR-AMT(WS-ROW-IDX)
+           END-PERFORM.
+
+       HIST-RENDER.
+           MOVE SPACES TO WS-STATUS-MSG
+           STRING FUNCTION TRIM(LBL-PAGEOF) " " WS-PAGE
+                  DELIMITED BY SIZE INTO WS-STATUS-MSG
+           IF SCREEN-ON
+               PERFORM RENDER-HDR-ANSI
+               IF WS-NF-FLAG = "Y"
+                   PERFORM RENDER-NOTFOUND-SCREEN
+               ELSE
+                   PERFORM HIST-RENDER-SCREEN
+               END-IF
+               PERFORM RENDER-INQ-FOOT-ANSI
+           ELSE
+               PERFORM HIST-RENDER-PLAIN
+           END-IF.
+
+       HIST-RENDER-SCREEN.
+           MOVE LBL-A-ANO TO WS-FLD-LBL
+           MOVE WS-KEY TO WS-FLD-VAL
+           MOVE 3 TO WS-FLD-LINE
+           PERFORM RENDER-FIELD
+           MOVE WS-CLR-BASE TO WS-PUT-COLOR
+           MOVE 3 TO WS-FLD-LINE  MOVE 44 TO WS-FLD-COL
+           MOVE LBL-H-BAL TO WS-FLD-VAL  PERFORM RENDER-AT
+           MOVE 3 TO WS-FLD-LINE  MOVE 62 TO WS-FLD-COL
+           MOVE WS-H-BAL-E TO WS-FLD-VAL  PERFORM RENDER-AT
+           MOVE 5 TO WS-FLD-LINE  MOVE 2 TO WS-FLD-COL
+           MOVE LBL-H-DATE TO WS-FLD-VAL  PERFORM RENDER-AT
+           MOVE 5 TO WS-FLD-LINE  MOVE 16 TO WS-FLD-COL
+           MOVE LBL-H-TXN TO WS-FLD-VAL  PERFORM RENDER-AT
+           MOVE 5 TO WS-FLD-LINE  MOVE 38 TO WS-FLD-COL
+           MOVE LBL-H-ROLE TO WS-FLD-VAL  PERFORM RENDER-AT
+           MOVE 5 TO WS-FLD-LINE  MOVE 50 TO WS-FLD-COL
+           MOVE LBL-H-AMT TO WS-FLD-VAL  PERFORM RENDER-AT
+           PERFORM VARYING WS-ROW-IDX FROM 1 BY 1
+                   UNTIL WS-ROW-IDX > 10
+               IF HR-TXN(WS-ROW-IDX) NOT = SPACES
+                   COMPUTE WS-FLD-LINE = 6 + WS-ROW-IDX
+                   MOVE 2 TO WS-FLD-COL
+                   MOVE HR-DATE(WS-ROW-IDX) TO WS-FLD-VAL
+                   PERFORM RENDER-AT
+                   MOVE 16 TO WS-FLD-COL
+                   MOVE HR-TXN(WS-ROW-IDX) TO WS-FLD-VAL
+                   PERFORM RENDER-AT
+                   MOVE 38 TO WS-FLD-COL
+                   MOVE HR-ROLE(WS-ROW-IDX) TO WS-FLD-VAL
+                   PERFORM RENDER-AT
+                   MOVE 50 TO WS-FLD-COL
+                   MOVE HR-AMT(WS-ROW-IDX) TO WS-FLD-VAL
+                   PERFORM RENDER-AT
+               END-IF
+           END-PERFORM.
+
+       HIST-RENDER-PLAIN.
+           IF WS-NF-FLAG = "Y"
+               DISPLAY FUNCTION TRIM(LBL-NOTFOUND)
+               EXIT PARAGRAPH
+           END-IF
+           DISPLAY " "
+           DISPLAY "== " FUNCTION TRIM(LBL-HISTTITLE)
+                   " (" FUNCTION TRIM(LBL-PAGEOF) " " WS-PAGE ")"
+           DISPLAY FUNCTION TRIM(LBL-A-ANO) " "
+                   FUNCTION TRIM(WS-KEY) "  "
+                   FUNCTION TRIM(LBL-H-BAL) " "
+                   FUNCTION TRIM(WS-H-BAL-E)
+                   "  total " WS-JTOTAL
+           DISPLAY LBL-H-DATE " " LBL-H-TXN " "
+                   LBL-H-ROLE " " LBL-H-AMT
+           PERFORM VARYING WS-ROW-IDX FROM 1 BY 1
+                   UNTIL WS-ROW-IDX > 10
+               IF HR-TXN(WS-ROW-IDX) NOT = SPACES
+                   DISPLAY HR-DATE(WS-ROW-IDX) " "
+                           HR-TXN(WS-ROW-IDX) " "
+                           HR-ROLE(WS-ROW-IDX) " "
+                           FUNCTION TRIM(HR-AMT(WS-ROW-IDX))
+               END-IF
+           END-PERFORM.
+
+       HIST-EVENT-LOOP.
+           MOVE "N" TO WS-EXIT-FLAG
+           PERFORM UNTIL WS-EXIT-FLAG = "Y"
+               PERFORM INQ-READ-CMD
+               EVALUATE WS-CMD-NORM
+                   WHEN SPACES
+                   WHEN "B"
+                   WHEN "BACK"
+                   WHEN "MENU"
+                   WHEN "EXIT"
+                   WHEN "QUIT"
+                       MOVE "Y" TO WS-EXIT-FLAG
+                   WHEN "N"
+                   WHEN "NEXT"
+                       IF (WS-PAGE * WS-PAGE-SIZE) < WS-JTOTAL
+                           ADD 1 TO WS-PAGE
+                           PERFORM HIST-LOAD-PAGE
+                           PERFORM HIST-RENDER
+                       END-IF
+                   WHEN "P"
+                   WHEN "PREV"
+                       IF WS-PAGE > 1
+                           SUBTRACT 1 FROM WS-PAGE
+                           PERFORM HIST-LOAD-PAGE
+                           PERFORM HIST-RENDER
+                       END-IF
+                   WHEN OTHER
+                       PERFORM REVS-PARSE-ROW
+                       IF WS-ROW-OK = "Y" AND
+                          HR-TXN(WS-ROW-PICK) IS NUMERIC
+                           MOVE HR-TXN(WS-ROW-PICK) TO WS-PREFILL-TXN
+                           MOVE "REVS" TO WS-PENDING-TRAN
+                           MOVE "Y" TO WS-EXIT-FLAG
+                       ELSE
+                           MOVE FUNCTION TRIM(WS-CMD-LINE) TO WS-KEY
+                           MOVE 1 TO WS-PAGE
+                           PERFORM HIST-COUNT
+                           PERFORM HIST-LOAD-PAGE
+                           PERFORM HIST-RENDER
+                       END-IF
+               END-EVALUATE
+           END-PERFORM.
+
+       AUDT-TRAN.
+           MOVE "PBNK-AUDT"   TO WS-SCR-PFX
+           MOVE LBL-AUDTTITLE TO WS-SCR-TITLE
+           MOVE LBL-PF-PAGE   TO WS-SCR-PF
+           MOVE SPACES        TO WS-ERR-MSG
+           IF WS-KEY = SPACES
+               MOVE WS-DEMO-BDATE-PG TO WS-KEY
+           END-IF
+           MOVE 1 TO WS-PAGE
+           PERFORM AUDT-COUNT
+           PERFORM AUDT-LOAD-PAGE
+           PERFORM AUDT-RENDER
+           IF SCREEN-ON
+               PERFORM AUDT-EVENT-LOOP
+           END-IF.
+
+       VALIDATE-DATE.
+           MOVE "Y" TO WS-DATE-OK
+           IF WS-DATEKEY(5:1) NOT = "-"
+              OR WS-DATEKEY(8:1) NOT = "-"
+               MOVE "N" TO WS-DATE-OK
+           END-IF
+           IF WS-DATEKEY(1:4) IS NOT NUMERIC
+              OR WS-DATEKEY(6:2) IS NOT NUMERIC
+              OR WS-DATEKEY(9:2) IS NOT NUMERIC
+               MOVE "N" TO WS-DATE-OK
+           END-IF.
+
+       AUDT-COUNT.
+           MOVE "N" TO WS-NF-FLAG
+           PERFORM NORMALIZE-KEY
+           MOVE WS-KEY(1:10) TO WS-DATEKEY
+           PERFORM VALIDATE-DATE
+           IF WS-DATE-OK = "N"
+               MOVE "Y" TO WS-NF-FLAG
+               MOVE 0 TO WS-JTOTAL
+               EXIT PARAGRAPH
+           END-IF
+           MOVE WS-DATEKEY TO HV-BDATE
+           MOVE 0 TO WS-JTOTAL
+           PERFORM PG-COMMIT
+           EXEC SQL
+               SELECT COUNT(*) INTO :HV-CNT
+                 FROM audit_log
+                WHERE business_date = CAST(:HV-BDATE AS DATE)
+           END-EXEC
+           IF SQLCODE NOT = 0
+               MOVE "Y" TO WS-NF-FLAG
+               EXIT PARAGRAPH
+           END-IF
+           MOVE HV-CNT TO WS-JTOTAL
+           IF WS-JTOTAL = 0
+               MOVE "Y" TO WS-NF-FLAG
+           END-IF.
+
+       AUDT-LOAD-PAGE.
+           COMPUTE WS-OFFSET = (WS-PAGE - 1) * WS-PAGE-SIZE
+           MOVE WS-OFFSET    TO HV-OFFSET
+           MOVE WS-PAGE-SIZE TO HV-LIMIT
+           PERFORM CLEAR-AROWS
+           MOVE 0 TO WS-ROW-IDX
+           PERFORM PG-COMMIT
+           EXEC SQL
+               DECLARE ACUR CURSOR FOR
+               SELECT system_ts,
+                      subsystem, action, severity,
+                      COALESCE(target_id,'')
+                 FROM audit_log
+                WHERE business_date = CAST(:HV-BDATE AS DATE)
+                ORDER BY audit_id DESC
+                OFFSET :HV-OFFSET LIMIT :HV-LIMIT
+           END-EXEC
+           EXEC SQL OPEN ACUR END-EXEC
+           PERFORM UNTIL SQLCODE NOT = 0
+               EXEC SQL
+                   FETCH ACUR INTO :HV-TS, :HV-SS,
+                                   :HV-ACTION, :HV-SEV, :HV-TGT
+               END-EXEC
+               IF SQLCODE = 0
+                   ADD 1 TO WS-ROW-IDX
+                   MOVE HV-TS     TO AU-TS(WS-ROW-IDX)
+                   MOVE HV-SS     TO AU-SS(WS-ROW-IDX)
+                   MOVE HV-ACTION TO AU-ACT(WS-ROW-IDX)
+                   MOVE HV-SEV    TO AU-SEV(WS-ROW-IDX)
+                   MOVE HV-TGT    TO AU-TGT(WS-ROW-IDX)
+               END-IF
+           END-PERFORM
+           EXEC SQL CLOSE ACUR END-EXEC.
+
+       CLEAR-AROWS.
+           PERFORM VARYING WS-ROW-IDX FROM 1 BY 1
+                   UNTIL WS-ROW-IDX > 10
+               MOVE SPACES TO AU-TS(WS-ROW-IDX)
+                              AU-SS(WS-ROW-IDX)
+                              AU-ACT(WS-ROW-IDX)
+                              AU-SEV(WS-ROW-IDX)
+                              AU-TGT(WS-ROW-IDX)
+           END-PERFORM.
+
+       AUDT-RENDER.
+           MOVE SPACES TO WS-STATUS-MSG
+           STRING FUNCTION TRIM(LBL-PAGEOF) " " WS-PAGE
+                  DELIMITED BY SIZE INTO WS-STATUS-MSG
+           IF SCREEN-ON
+               PERFORM RENDER-HDR-ANSI
+               IF WS-NF-FLAG = "Y"
+                   PERFORM RENDER-NOTFOUND-SCREEN
+               ELSE
+                   PERFORM AUDT-RENDER-SCREEN
+               END-IF
+               PERFORM RENDER-INQ-FOOT-ANSI
+           ELSE
+               PERFORM AUDT-RENDER-PLAIN
+           END-IF.
+
+       AUDT-RENDER-SCREEN.
+           MOVE LBL-H-DATE TO WS-FLD-LBL
+           MOVE WS-KEY TO WS-FLD-VAL
+           MOVE 3 TO WS-FLD-LINE
+           PERFORM RENDER-FIELD
+           MOVE WS-CLR-BASE TO WS-PUT-COLOR
+           MOVE 5 TO WS-FLD-LINE  MOVE 2 TO WS-FLD-COL
+           MOVE LBL-AU-TS TO WS-FLD-VAL  PERFORM RENDER-AT
+           MOVE 5 TO WS-FLD-LINE  MOVE 22 TO WS-FLD-COL
+           MOVE LBL-AU-SS TO WS-FLD-VAL  PERFORM RENDER-AT
+           MOVE 5 TO WS-FLD-LINE  MOVE 40 TO WS-FLD-COL
+           MOVE LBL-AU-ACT TO WS-FLD-VAL  PERFORM RENDER-AT
+           MOVE 5 TO WS-FLD-LINE  MOVE 66 TO WS-FLD-COL
+           MOVE LBL-AU-SEV TO WS-FLD-VAL  PERFORM RENDER-AT
+           PERFORM VARYING WS-ROW-IDX FROM 1 BY 1
+                   UNTIL WS-ROW-IDX > 10
+               IF AU-TS(WS-ROW-IDX) NOT = SPACES
+                   COMPUTE WS-FLD-LINE = 6 + WS-ROW-IDX
+                   PERFORM SET-SEV-COLOR
+                   MOVE 2 TO WS-FLD-COL
+                   MOVE AU-TS(WS-ROW-IDX) TO WS-FLD-VAL
+                   PERFORM RENDER-AT
+                   MOVE 22 TO WS-FLD-COL
+                   MOVE AU-SS(WS-ROW-IDX) TO WS-FLD-VAL
+                   PERFORM RENDER-AT
+                   MOVE 40 TO WS-FLD-COL
+                   MOVE AU-ACT(WS-ROW-IDX) TO WS-FLD-VAL
+                   PERFORM RENDER-AT
+                   MOVE 66 TO WS-FLD-COL
+                   MOVE AU-SEV(WS-ROW-IDX) TO WS-FLD-VAL
+                   PERFORM RENDER-AT
+               END-IF
+           END-PERFORM.
+
+       SET-SEV-COLOR.
+           EVALUATE AU-SEV(WS-ROW-IDX)
+               WHEN "I" MOVE "32"      TO WS-PUT-COLOR
+               WHEN "W" MOVE "1;33"    TO WS-PUT-COLOR
+               WHEN "E" MOVE "1;31"    TO WS-PUT-COLOR
+               WHEN "C" MOVE "1;37;41" TO WS-PUT-COLOR
+               WHEN OTHER MOVE "32"    TO WS-PUT-COLOR
+           END-EVALUATE.
+
+       AUDT-RENDER-PLAIN.
+           IF WS-NF-FLAG = "Y"
+               DISPLAY FUNCTION TRIM(LBL-NOTFOUND)
+               EXIT PARAGRAPH
+           END-IF
+           DISPLAY " "
+           DISPLAY "== " FUNCTION TRIM(LBL-AUDTTITLE)
+                   " (" FUNCTION TRIM(LBL-PAGEOF) " " WS-PAGE ")"
+           DISPLAY FUNCTION TRIM(LBL-H-DATE) " "
+                   FUNCTION TRIM(WS-KEY)
+                   "  total " WS-JTOTAL
+           DISPLAY LBL-AU-TS " " LBL-AU-SS " "
+                   LBL-AU-ACT " " LBL-AU-SEV
+           PERFORM VARYING WS-ROW-IDX FROM 1 BY 1
+                   UNTIL WS-ROW-IDX > 10
+               IF AU-TS(WS-ROW-IDX) NOT = SPACES
+                   DISPLAY AU-TS(WS-ROW-IDX) " "
+                           FUNCTION TRIM(AU-SS(WS-ROW-IDX)) " "
+                           FUNCTION TRIM(AU-ACT(WS-ROW-IDX)) " "
+                           AU-SEV(WS-ROW-IDX) " "
+                           FUNCTION TRIM(AU-TGT(WS-ROW-IDX))
+               END-IF
+           END-PERFORM.
+
+       AUDT-EVENT-LOOP.
+           MOVE "N" TO WS-EXIT-FLAG
+           PERFORM UNTIL WS-EXIT-FLAG = "Y"
+               PERFORM INQ-READ-CMD
+               EVALUATE WS-CMD-NORM
+                   WHEN SPACES
+                   WHEN "B"
+                   WHEN "BACK"
+                   WHEN "MENU"
+                   WHEN "EXIT"
+                   WHEN "QUIT"
+                       MOVE "Y" TO WS-EXIT-FLAG
+                   WHEN "N"
+                   WHEN "NEXT"
+                       IF (WS-PAGE * WS-PAGE-SIZE) < WS-JTOTAL
+                           ADD 1 TO WS-PAGE
+                           PERFORM AUDT-LOAD-PAGE
+                           PERFORM AUDT-RENDER
+                       END-IF
+                   WHEN "P"
+                   WHEN "PREV"
+                       IF WS-PAGE > 1
+                           SUBTRACT 1 FROM WS-PAGE
+                           PERFORM AUDT-LOAD-PAGE
+                           PERFORM AUDT-RENDER
+                       END-IF
+                   WHEN OTHER
+                       MOVE FUNCTION TRIM(WS-CMD-LINE) TO WS-KEY
+                       MOVE 1 TO WS-PAGE
+                       PERFORM AUDT-COUNT
+                       PERFORM AUDT-LOAD-PAGE
+                       PERFORM AUDT-RENDER
+               END-EVALUATE
+           END-PERFORM.
+
+       BRUN-TRAN.
+           MOVE "PBNK-BRUN"   TO WS-SCR-PFX
+           MOVE LBL-BRUNTITLE TO WS-SCR-TITLE
+           MOVE LBL-PF-BRUN   TO WS-SCR-PF
+           MOVE SPACES        TO WS-ERR-MSG
+           MOVE 1 TO WS-PAGE
+           PERFORM BRUN-COUNT
+           PERFORM BRUN-LOAD-PAGE
+           PERFORM BRUN-RENDER
+           IF SCREEN-ON
+               PERFORM BRUN-EVENT-LOOP
+           END-IF.
+
+       BRUN-COUNT.
+           MOVE "N" TO WS-NF-FLAG
+           MOVE 0 TO WS-JTOTAL
+           PERFORM PG-COMMIT
+           EXEC SQL
+               SELECT COUNT(*) INTO :HV-CNT FROM batch_run
+           END-EXEC
+           IF SQLCODE NOT = 0
+               MOVE "Y" TO WS-NF-FLAG
+               EXIT PARAGRAPH
+           END-IF
+           MOVE HV-CNT TO WS-JTOTAL
+           IF WS-JTOTAL = 0
+               MOVE "Y" TO WS-NF-FLAG
+           END-IF.
+
+       BRUN-LOAD-PAGE.
+           COMPUTE WS-OFFSET = (WS-PAGE - 1) * WS-PAGE-SIZE
+           MOVE WS-OFFSET    TO HV-OFFSET
+           MOVE WS-PAGE-SIZE TO HV-LIMIT
+           PERFORM CLEAR-BRROWS
+           MOVE 0 TO WS-ROW-IDX
+           PERFORM PG-COMMIT
+           EXEC SQL
+               DECLARE BCUR CURSOR FOR
+               SELECT batch_id,
+                      business_date,
+                      status,
+                      COALESCE(current_step,''),
+                      COALESCE(txns_posted,0),
+                      errors_count,
+                      started_ts
+                 FROM batch_run
+                ORDER BY started_ts DESC
+                OFFSET :HV-OFFSET LIMIT :HV-LIMIT
+           END-EXEC
+           EXEC SQL OPEN BCUR END-EXEC
+           PERFORM UNTIL SQLCODE NOT = 0
+               EXEC SQL
+                   FETCH BCUR INTO :HV-BR-BID, :HV-BR-BD,
+                                   :HV-BR-STATUS, :HV-BR-STEP,
+                                   :HV-BR-TXNS, :HV-BR-ERRS,
+                                   :HV-BR-START
+               END-EXEC
+               IF SQLCODE = 0
+                   ADD 1 TO WS-ROW-IDX
+                   MOVE HV-BR-BID    TO BR-BID(WS-ROW-IDX)
+                   MOVE HV-BR-BD     TO BR-BD(WS-ROW-IDX)
+                   MOVE HV-BR-STATUS TO BR-STATUS(WS-ROW-IDX)
+                   MOVE HV-BR-STEP   TO BR-STEP(WS-ROW-IDX)
+                   MOVE HV-BR-TXNS   TO WS-BR-NUM-EDIT
+                   MOVE WS-BR-NUM-EDIT TO BR-TXNS(WS-ROW-IDX)
+                   MOVE HV-BR-ERRS   TO WS-BR-NUM-EDIT
+                   MOVE WS-BR-NUM-EDIT TO BR-ERRS(WS-ROW-IDX)
+                   MOVE HV-BR-START  TO BR-START(WS-ROW-IDX)
+               END-IF
+           END-PERFORM
+           EXEC SQL CLOSE BCUR END-EXEC.
+
+       CLEAR-BRROWS.
+           PERFORM VARYING WS-ROW-IDX FROM 1 BY 1
+                   UNTIL WS-ROW-IDX > 10
+               MOVE SPACES TO BR-BID(WS-ROW-IDX)
+                              BR-BD(WS-ROW-IDX)
+                              BR-STATUS(WS-ROW-IDX)
+                              BR-STEP(WS-ROW-IDX)
+                              BR-TXNS(WS-ROW-IDX)
+                              BR-ERRS(WS-ROW-IDX)
+                              BR-START(WS-ROW-IDX)
+           END-PERFORM.
+
+       BRUN-RENDER.
+           MOVE SPACES TO WS-STATUS-MSG
+           STRING FUNCTION TRIM(LBL-PAGEOF) " " WS-PAGE
+                  DELIMITED BY SIZE INTO WS-STATUS-MSG
+           IF SCREEN-ON
+               PERFORM RENDER-HDR-ANSI
+               IF WS-NF-FLAG = "Y"
+                   MOVE "1;33" TO WS-PUT-COLOR
+                   MOVE 6 TO WS-AT-ROW  MOVE 4 TO WS-AT-COL
+                   MOVE LBL-BR-EMPTY TO WS-PUT-TEXT  PERFORM ANSI-PUT
+                   MOVE WS-CLR-BASE TO WS-PUT-COLOR
+               ELSE
+                   PERFORM BRUN-RENDER-SCREEN
+               END-IF
+               PERFORM RENDER-INQ-FOOT-ANSI
+           ELSE
+               PERFORM BRUN-RENDER-PLAIN
+           END-IF.
+
+       BRUN-RENDER-SCREEN.
+           MOVE WS-CLR-BASE TO WS-PUT-COLOR
+           MOVE 5 TO WS-FLD-LINE  MOVE 2 TO WS-FLD-COL
+           MOVE LBL-BR-BID TO WS-FLD-VAL  PERFORM RENDER-AT
+           MOVE 5 TO WS-FLD-LINE  MOVE 17 TO WS-FLD-COL
+           MOVE LBL-BR-BD TO WS-FLD-VAL  PERFORM RENDER-AT
+           MOVE 5 TO WS-FLD-LINE  MOVE 28 TO WS-FLD-COL
+           MOVE LBL-BR-STATUS TO WS-FLD-VAL  PERFORM RENDER-AT
+           MOVE 5 TO WS-FLD-LINE  MOVE 32 TO WS-FLD-COL
+           MOVE LBL-BR-STEP TO WS-FLD-VAL  PERFORM RENDER-AT
+           MOVE 5 TO WS-FLD-LINE  MOVE 48 TO WS-FLD-COL
+           MOVE LBL-BR-TXNS TO WS-FLD-VAL  PERFORM RENDER-AT
+           MOVE 5 TO WS-FLD-LINE  MOVE 57 TO WS-FLD-COL
+           MOVE LBL-BR-ERRS TO WS-FLD-VAL  PERFORM RENDER-AT
+           MOVE 5 TO WS-FLD-LINE  MOVE 64 TO WS-FLD-COL
+           MOVE LBL-BR-START TO WS-FLD-VAL  PERFORM RENDER-AT
+           PERFORM VARYING WS-ROW-IDX FROM 1 BY 1
+                   UNTIL WS-ROW-IDX > 10
+               IF BR-BID(WS-ROW-IDX) NOT = SPACES
+                   COMPUTE WS-FLD-LINE = 6 + WS-ROW-IDX
+                   PERFORM SET-STATUS-COLOR
+                   MOVE 2 TO WS-FLD-COL
+                   MOVE BR-BID(WS-ROW-IDX) TO WS-FLD-VAL
+                   PERFORM RENDER-AT
+                   MOVE 17 TO WS-FLD-COL
+                   MOVE BR-BD(WS-ROW-IDX) TO WS-FLD-VAL
+                   PERFORM RENDER-AT
+                   MOVE 28 TO WS-FLD-COL
+                   MOVE BR-STATUS(WS-ROW-IDX) TO WS-FLD-VAL
+                   PERFORM RENDER-AT
+                   MOVE 32 TO WS-FLD-COL
+                   MOVE BR-STEP(WS-ROW-IDX) TO WS-FLD-VAL
+                   PERFORM RENDER-AT
+                   MOVE 48 TO WS-FLD-COL
+                   MOVE BR-TXNS(WS-ROW-IDX) TO WS-FLD-VAL
+                   PERFORM RENDER-AT
+                   MOVE 57 TO WS-FLD-COL
+                   MOVE BR-ERRS(WS-ROW-IDX) TO WS-FLD-VAL
+                   PERFORM RENDER-AT
+                   MOVE 64 TO WS-FLD-COL
+                   MOVE BR-START(WS-ROW-IDX)(12:8) TO WS-FLD-VAL
+                   PERFORM RENDER-AT
+               END-IF
+           END-PERFORM.
+
+       SET-STATUS-COLOR.
+           EVALUATE BR-STATUS(WS-ROW-IDX)
+               WHEN "OK" MOVE "32"      TO WS-PUT-COLOR
+               WHEN "RN" MOVE "1;33"    TO WS-PUT-COLOR
+               WHEN "FL" MOVE "1;31"    TO WS-PUT-COLOR
+               WHEN "AB" MOVE "1;37;41" TO WS-PUT-COLOR
+               WHEN OTHER MOVE "32"     TO WS-PUT-COLOR
+           END-EVALUATE.
+
+       BRUN-RENDER-PLAIN.
+           IF WS-NF-FLAG = "Y"
+               DISPLAY FUNCTION TRIM(LBL-BR-EMPTY)
+               EXIT PARAGRAPH
+           END-IF
+           DISPLAY " "
+           DISPLAY "== " FUNCTION TRIM(LBL-BRUNTITLE)
+                   " (" FUNCTION TRIM(LBL-PAGEOF) " " WS-PAGE ")"
+           DISPLAY "total " WS-JTOTAL
+           DISPLAY LBL-BR-BID " " LBL-BR-BD " " LBL-BR-STATUS " "
+                   LBL-BR-STEP " " LBL-BR-TXNS " " LBL-BR-ERRS
+           PERFORM VARYING WS-ROW-IDX FROM 1 BY 1
+                   UNTIL WS-ROW-IDX > 10
+               IF BR-BID(WS-ROW-IDX) NOT = SPACES
+                   DISPLAY BR-BID(WS-ROW-IDX) " "
+                           FUNCTION TRIM(BR-BD(WS-ROW-IDX)) " "
+                           BR-STATUS(WS-ROW-IDX) " "
+                           FUNCTION TRIM(BR-STEP(WS-ROW-IDX)) " "
+                           FUNCTION TRIM(BR-TXNS(WS-ROW-IDX)) " "
+                           FUNCTION TRIM(BR-ERRS(WS-ROW-IDX)) " "
+                           FUNCTION TRIM(BR-START(WS-ROW-IDX))
+               END-IF
+           END-PERFORM.
+
+       BRUN-EVENT-LOOP.
+           MOVE "N" TO WS-EXIT-FLAG
+           PERFORM UNTIL WS-EXIT-FLAG = "Y"
+               PERFORM INQ-READ-CMD
+               EVALUATE WS-CMD-NORM
+                   WHEN SPACES
+                   WHEN "B"
+                   WHEN "BACK"
+                   WHEN "MENU"
+                   WHEN "EXIT"
+                   WHEN "QUIT"
+                       MOVE "Y" TO WS-EXIT-FLAG
+                   WHEN "N"
+                   WHEN "NEXT"
+                       IF (WS-PAGE * WS-PAGE-SIZE) < WS-JTOTAL
+                           ADD 1 TO WS-PAGE
+                           PERFORM BRUN-LOAD-PAGE
+                           PERFORM BRUN-RENDER
+                       END-IF
+                   WHEN "P"
+                   WHEN "PREV"
+                       IF WS-PAGE > 1
+                           SUBTRACT 1 FROM WS-PAGE
+                           PERFORM BRUN-LOAD-PAGE
+                           PERFORM BRUN-RENDER
+                       END-IF
+                   WHEN "W"
+                   WHEN "WATCH"
+                       PERFORM BRUN-WATCH
+                   WHEN OTHER
+                       MOVE 1 TO WS-PAGE
+                       PERFORM BRUN-COUNT
+                       PERFORM BRUN-LOAD-PAGE
+                       PERFORM BRUN-RENDER
+               END-EVALUATE
+           END-PERFORM.
+
+        WATCH-SETUP.
+           MOVE 12 TO WS-WATCH-CYCLES
+           MOVE 2000 TO WS-WATCH-MS
+           MOVE SPACES TO WS-WENV
+           ACCEPT WS-WENV FROM ENVIRONMENT "CONSOLE_WATCH_CYCLES"
+           IF WS-WENV NOT = SPACES
+               COMPUTE WS-WATCH-CYCLES = FUNCTION NUMVAL(WS-WENV)
+           END-IF
+           MOVE SPACES TO WS-WENV
+           ACCEPT WS-WENV FROM ENVIRONMENT "CONSOLE_WATCH_MS"
+           IF WS-WENV NOT = SPACES
+               COMPUTE WS-WATCH-MS = FUNCTION NUMVAL(WS-WENV)
+           END-IF
+           IF WS-WATCH-CYCLES < 1
+               MOVE 1 TO WS-WATCH-CYCLES
+           END-IF
+           COMPUTE WS-WATCH-NANOS = WS-WATCH-MS * 1000000.
+
+        BRUN-WATCH.
+           PERFORM WATCH-SETUP
+           PERFORM VARYING WS-WATCH-N FROM 1 BY 1
+                   UNTIL WS-WATCH-N > WS-WATCH-CYCLES
+               PERFORM BRUN-COUNT
+               PERFORM BRUN-LOAD-PAGE
+               PERFORM BRUN-RENDER
+               IF SCREEN-ON
+                   PERFORM RENDER-WATCH-IND
+               END-IF
+               IF WS-WATCH-NANOS > 0
+                   CALL "CBL_OC_NANOSLEEP" USING WS-WATCH-NANOS
+               END-IF
+           END-PERFORM.
+
+        RENDER-WATCH-IND.
+           MOVE WS-WATCH-N TO WS-WN-DISP
+           MOVE WS-WATCH-CYCLES TO WS-WC-DISP
+           MOVE SPACES TO WS-PUT-TEXT
+           STRING FUNCTION TRIM(LBL-WATCHING) " "
+                  FUNCTION TRIM(WS-WN-DISP) "/"
+                  FUNCTION TRIM(WS-WC-DISP)
+                  DELIMITED BY SIZE INTO WS-PUT-TEXT
+           MOVE WS-CLR-HI TO WS-PUT-COLOR
+           MOVE 23 TO WS-AT-ROW  MOVE 48 TO WS-AT-COL
+           PERFORM ANSI-PUT
+           MOVE WS-CLR-BASE TO WS-PUT-COLOR.
+
+       SCEN-TRAN.
+           PERFORM SCEN-SETUP
+           MOVE "PBNK-SCEN"   TO WS-SCR-PFX
+           MOVE LBL-SCENTITLE TO WS-SCR-TITLE
+           MOVE LBL-PF-SCEN   TO WS-SCR-PF
+           MOVE SPACES        TO WS-ERR-MSG WS-STATUS-MSG
+           MOVE "N" TO WS-SCEN-RAN
+           IF NOT SCREEN-ON
+               IF WS-SCEN-ARG NOT = SPACES
+                   MOVE WS-SCEN-ARG TO WS-SCEN-VERB
+                   PERFORM SCEN-RUN
+               END-IF
+               PERFORM SCEN-RENDER-PLAIN
+               EXIT PARAGRAPH
+           END-IF
+           PERFORM SCEN-RENDER
+           PERFORM SCEN-EVENT-LOOP.
+
+       SCEN-SETUP.
+           MOVE SPACES TO WS-SCEN-SCRIPT
+           ACCEPT WS-SCEN-SCRIPT
+               FROM ENVIRONMENT "CONSOLE_SCENARIO_SCRIPT"
+           IF WS-SCEN-SCRIPT = SPACES
+               MOVE "/workspace/console/scripts/run-scenario.sh"
+                   TO WS-SCEN-SCRIPT
+           END-IF.
+
+       SCEN-EVENT-LOOP.
+           MOVE "N" TO WS-EXIT-FLAG
+           PERFORM UNTIL WS-EXIT-FLAG = "Y"
+               PERFORM INQ-READ-CMD
+               EVALUATE WS-CMD-NORM
+                   WHEN SPACES
+                   WHEN "B"
+                   WHEN "BACK"
+                   WHEN "MENU"
+                   WHEN "EXIT"
+                   WHEN "QUIT"
+                       MOVE "Y" TO WS-EXIT-FLAG
+                   WHEN "R"
+                   WHEN "RECON"
+                       MOVE "recon" TO WS-SCEN-VERB
+                       PERFORM SCEN-RUN
+                   WHEN "C"
+                   WHEN "CONC"
+                   WHEN "CONCURRENT"
+                       MOVE "concurrent" TO WS-SCEN-VERB
+                       PERFORM SCEN-RUN
+                   WHEN "S"
+                   WHEN "SMOKE"
+                       MOVE "smoke" TO WS-SCEN-VERB
+                       PERFORM SCEN-RUN
+                   WHEN OTHER
+                       CONTINUE
+               END-EVALUATE
+           END-PERFORM.
+
+       SCEN-RUN.
+           PERFORM PG-COMMIT
+           IF SCREEN-ON
+               PERFORM SCEN-RENDER-RUNNING
+           END-IF
+           MOVE SPACES TO WS-SCEN-RES-PATH WS-SCEN-KEY-PATH
+           STRING FUNCTION TRIM(WS-SCEN-DIR) "/scenario-"
+                  FUNCTION TRIM(WS-SCEN-VERB) ".result"
+                  DELIMITED BY SIZE INTO WS-SCEN-RES-PATH
+           STRING FUNCTION TRIM(WS-SCEN-DIR) "/scenario-"
+                  FUNCTION TRIM(WS-SCEN-VERB) ".keys"
+                  DELIMITED BY SIZE INTO WS-SCEN-KEY-PATH
+           MOVE SPACES TO WS-CMD
+           STRING "rm -f " FUNCTION TRIM(WS-SCEN-RES-PATH)
+                  " " FUNCTION TRIM(WS-SCEN-KEY-PATH)
+                  DELIMITED BY SIZE INTO WS-CMD
+           CALL "SYSTEM" USING WS-CMD
+           MOVE SPACES TO WS-CMD
+           STRING "bash " FUNCTION TRIM(WS-SCEN-SCRIPT)
+                  " " FUNCTION TRIM(WS-SCEN-VERB)
+                  " " FUNCTION TRIM(WS-SCEN-DIR)
+                  DELIMITED BY SIZE INTO WS-CMD
+           CALL "SYSTEM" USING WS-CMD
+           DIVIDE RETURN-CODE BY 256 GIVING WS-SCEN-RC
+           PERFORM SCEN-READ-RESULT
+           PERFORM SCEN-READ-KEYS
+           MOVE "Y" TO WS-SCEN-RAN
+           IF SCREEN-ON
+               PERFORM SCEN-RENDER
+           END-IF.
+
+       SCEN-READ-RESULT.
+           MOVE SPACES TO WS-SCEN-LINE WS-SCEN-RPASS WS-SCEN-RFAIL
+                          WS-SCEN-RRC WS-SCEN-RELAPSED
+           MOVE "N" TO WS-SCEN-OK-FLAG
+           OPEN INPUT SCENRES-FILE
+           IF WS-SCRES-FS NOT = "00"
+               EXIT PARAGRAPH
+           END-IF
+           READ SCENRES-FILE
+               AT END CONTINUE
+               NOT AT END MOVE SCENRES-REC TO WS-SCEN-LINE
+           END-READ
+           CLOSE SCENRES-FILE
+           PERFORM SCEN-PARSE-RESULT.
+
+       SCEN-PARSE-RESULT.
+           UNSTRING WS-SCEN-LINE DELIMITED BY "|"
+               INTO WS-SCEN-TAG WS-SCEN-VERB WS-SCEN-RPASS
+                    WS-SCEN-RFAIL WS-SCEN-RRC WS-SCEN-RELAPSED
+           END-UNSTRING
+           IF WS-SCEN-RC = 0
+              AND FUNCTION TRIM(WS-SCEN-RFAIL) = "0"
+              AND FUNCTION TRIM(WS-SCEN-RPASS) NOT = SPACES
+               MOVE "Y" TO WS-SCEN-OK-FLAG
+           ELSE
+               MOVE "N" TO WS-SCEN-OK-FLAG
+           END-IF.
+
+       SCEN-READ-KEYS.
+           MOVE 0 TO WS-SCEN-KCNT
+           PERFORM VARYING WS-SCEN-FLD FROM 1 BY 1
+                   UNTIL WS-SCEN-FLD > 8
+               MOVE SPACES TO WS-SCEN-KEY(WS-SCEN-FLD)
+           END-PERFORM
+           OPEN INPUT SCENKEY-FILE
+           IF WS-SCKEY-FS NOT = "00"
+               EXIT PARAGRAPH
+           END-IF
+           MOVE "N" TO WS-SCEN-KEOF
+           PERFORM UNTIL WS-SCEN-KEOF = "Y" OR WS-SCEN-KCNT >= 7
+               READ SCENKEY-FILE
+                   AT END MOVE "Y" TO WS-SCEN-KEOF
+                   NOT AT END
+                       ADD 1 TO WS-SCEN-KCNT
+                       MOVE SCENKEY-REC
+                           TO WS-SCEN-KEY(WS-SCEN-KCNT)
+               END-READ
+           END-PERFORM
+           CLOSE SCENKEY-FILE.
+
+       SCEN-RENDER.
+           IF SCREEN-ON
+               PERFORM RENDER-HDR-ANSI
+               PERFORM SCEN-RENDER-LIST
+               IF WS-SCEN-RAN = "Y"
+                   PERFORM SCEN-RENDER-RESULT
+               END-IF
+               PERFORM RENDER-INQ-FOOT-ANSI
+           ELSE
+               PERFORM SCEN-RENDER-PLAIN
+           END-IF.
+
+       SCEN-RENDER-RUNNING.
+           PERFORM RENDER-HDR-ANSI
+           PERFORM SCEN-RENDER-LIST
+           MOVE "1;33" TO WS-PUT-COLOR
+           MOVE 11 TO WS-AT-ROW  MOVE 4 TO WS-AT-COL
+           MOVE LBL-SC-RUNNING TO WS-PUT-TEXT  PERFORM ANSI-PUT
+           MOVE WS-CLR-BASE TO WS-PUT-COLOR
+           PERFORM RENDER-INQ-FOOT-ANSI.
+
+       SCEN-RENDER-LIST.
+           MOVE WS-CLR-BASE TO WS-PUT-COLOR
+           MOVE 4 TO WS-AT-ROW  MOVE 2 TO WS-AT-COL
+           MOVE LBL-SC-HDR TO WS-PUT-TEXT  PERFORM ANSI-PUT
+           MOVE 6 TO WS-AT-ROW  MOVE 4 TO WS-AT-COL
+           MOVE LBL-SC-DESC-RECON TO WS-PUT-TEXT  PERFORM ANSI-PUT
+           MOVE 7 TO WS-AT-ROW  MOVE 4 TO WS-AT-COL
+           MOVE LBL-SC-DESC-CONC TO WS-PUT-TEXT  PERFORM ANSI-PUT
+           MOVE 8 TO WS-AT-ROW  MOVE 4 TO WS-AT-COL
+           MOVE LBL-SC-DESC-SMOKE TO WS-PUT-TEXT  PERFORM ANSI-PUT.
+
+       SCEN-RENDER-RESULT.
+           IF WS-SCEN-RC = 3
+               MOVE "1;33" TO WS-PUT-COLOR
+               MOVE 11 TO WS-AT-ROW  MOVE 4 TO WS-AT-COL
+               MOVE LBL-SC-GATE TO WS-PUT-TEXT  PERFORM ANSI-PUT
+               MOVE WS-CLR-BASE TO WS-PUT-COLOR
+               EXIT PARAGRAPH
+           END-IF
+           MOVE WS-CLR-BASE TO WS-PUT-COLOR
+           MOVE 11 TO WS-AT-ROW  MOVE 4 TO WS-AT-COL
+           MOVE LBL-SC-SCN TO WS-PUT-TEXT  PERFORM ANSI-PUT
+           MOVE 11 TO WS-AT-ROW  MOVE 16 TO WS-AT-COL
+           MOVE WS-SCEN-VERB TO WS-PUT-TEXT  PERFORM ANSI-PUT
+           IF WS-SCEN-OK-FLAG = "Y"
+               MOVE WS-CLR-HI TO WS-PUT-COLOR
+               MOVE LBL-SC-OK TO WS-FLD-VAL
+           ELSE
+               MOVE "1;31" TO WS-PUT-COLOR
+               MOVE LBL-SC-FAIL TO WS-FLD-VAL
+           END-IF
+           MOVE 11 TO WS-AT-ROW  MOVE 30 TO WS-AT-COL
+           MOVE WS-FLD-VAL TO WS-PUT-TEXT  PERFORM ANSI-PUT
+           MOVE WS-CLR-BASE TO WS-PUT-COLOR
+           MOVE SPACES TO WS-SCEN-LINE2
+           STRING "PASS=" FUNCTION TRIM(WS-SCEN-RPASS)
+                  "  FAIL=" FUNCTION TRIM(WS-SCEN-RFAIL)
+                  "  " FUNCTION TRIM(LBL-SC-ELAPSED) " "
+                  FUNCTION TRIM(WS-SCEN-RELAPSED) "s"
+                  DELIMITED BY SIZE INTO WS-SCEN-LINE2
+           MOVE 12 TO WS-AT-ROW  MOVE 4 TO WS-AT-COL
+           MOVE WS-SCEN-LINE2 TO WS-PUT-TEXT  PERFORM ANSI-PUT
+           PERFORM VARYING WS-SCEN-FLD FROM 1 BY 1
+                   UNTIL WS-SCEN-FLD > WS-SCEN-KCNT
+               COMPUTE WS-AT-ROW = 13 + WS-SCEN-FLD
+               MOVE 4 TO WS-AT-COL
+               MOVE WS-SCEN-KEY(WS-SCEN-FLD) TO WS-PUT-TEXT
+               PERFORM ANSI-PUT
+           END-PERFORM.
+
+       SCEN-RENDER-PLAIN.
+           DISPLAY " "
+           DISPLAY "== " FUNCTION TRIM(LBL-SCENTITLE)
+           IF WS-SCEN-RAN NOT = "Y"
+               DISPLAY FUNCTION TRIM(LBL-SC-HDR)
+               DISPLAY "  " FUNCTION TRIM(LBL-SC-DESC-RECON)
+               DISPLAY "  " FUNCTION TRIM(LBL-SC-DESC-CONC)
+               DISPLAY "  " FUNCTION TRIM(LBL-SC-DESC-SMOKE)
+               EXIT PARAGRAPH
+           END-IF
+           IF WS-SCEN-RC = 3
+               DISPLAY FUNCTION TRIM(LBL-SC-GATE)
+               EXIT PARAGRAPH
+           END-IF
+           IF WS-SCEN-OK-FLAG = "Y"
+               MOVE LBL-SC-OK TO WS-FLD-VAL
+           ELSE
+               MOVE LBL-SC-FAIL TO WS-FLD-VAL
+           END-IF
+           DISPLAY FUNCTION TRIM(LBL-SC-SCN) " "
+                   FUNCTION TRIM(WS-SCEN-VERB) "  "
+                   FUNCTION TRIM(WS-FLD-VAL) "  PASS="
+                   FUNCTION TRIM(WS-SCEN-RPASS) " FAIL="
+                   FUNCTION TRIM(WS-SCEN-RFAIL) "  "
+                   FUNCTION TRIM(LBL-SC-ELAPSED) " "
+                   FUNCTION TRIM(WS-SCEN-RELAPSED) "s"
+           PERFORM VARYING WS-SCEN-FLD FROM 1 BY 1
+                   UNTIL WS-SCEN-FLD > WS-SCEN-KCNT
+               DISPLAY "  " FUNCTION TRIM(WS-SCEN-KEY(WS-SCEN-FLD))
+           END-PERFORM.
+
+       REVS-TRAN.
+           MOVE "PBNK-REVS"   TO WS-SCR-PFX
+           MOVE LBL-REVSTITLE TO WS-SCR-TITLE
+           MOVE LBL-PF-REVS   TO WS-SCR-PF
+           MOVE SPACES        TO WS-ERR-MSG WS-OK-MSG
+           IF NOT SCREEN-ON
+               MOVE SPACES TO WS-PREFILL-TXN
+               DISPLAY FUNCTION TRIM(LBL-REVSTITLE)
+               EXIT PARAGRAPH
+           END-IF
+           PERFORM REVS-EVENT-LOOP.
+
+       REVS-EVENT-LOOP.
+           MOVE "N" TO WS-EXIT-FLAG
+           PERFORM UNTIL WS-EXIT-FLAG = "Y"
+               PERFORM REVS-RESET-ATTEMPT
+               PERFORM REVS-RENDER
+               IF WS-REVS-TXN = SPACES
+                   PERFORM REVS-ACCEPT-TXN
+               END-IF
+               IF WS-REVS-BACK = "Y"
+                   MOVE "Y" TO WS-EXIT-FLAG
+               ELSE
+                   PERFORM REVS-PREFLIGHT
+                   IF WS-PF-LOADED = "Y"
+                       PERFORM REVS-RENDER
+                       PERFORM REVS-DO-ATTEMPT
+                       IF WS-REVS-SUCCESS = "Y"
+                           PERFORM REVS-JUMP-JRNL
+                           MOVE "Y" TO WS-EXIT-FLAG
+                       END-IF
+                   END-IF
+               END-IF
+           END-PERFORM.
+
+       REVS-RESET-ATTEMPT.
+           MOVE SPACES TO WS-REVS-REASON
+           MOVE "N" TO WS-PF-LOADED WS-REVS-BACK
+           MOVE "N" TO WS-REVS-CONFIRMED WS-REVS-SUCCESS
+           IF WS-PREFILL-TXN NOT = SPACES
+               MOVE WS-PREFILL-TXN TO WS-REVS-TXN
+               MOVE SPACES TO WS-PREFILL-TXN
+           ELSE
+               MOVE SPACES TO WS-REVS-TXN
+           END-IF.
+
+       REVS-SANITIZE-CMD.
+           INSPECT WS-CMD-LINE REPLACING ALL X"0D" BY SPACE
+           INSPECT WS-CMD-LINE REPLACING ALL X"0A" BY SPACE
+           INSPECT WS-CMD-LINE REPLACING ALL X"09" BY SPACE
+           MOVE FUNCTION UPPER-CASE(FUNCTION TRIM(WS-CMD-LINE))
+                TO WS-CMD-NORM.
+
+       REVS-ACCEPT-TXN.
+           MOVE SPACES TO WS-ERR-MSG WS-OK-MSG
+           MOVE 6 TO WS-AT-ROW  MOVE 22 TO WS-AT-COL
+           PERFORM ANSI-CURSOR-AT
+           PERFORM ANSI-SHOW-CURSOR
+           MOVE SPACES TO WS-CMD-LINE
+           ACCEPT WS-CMD-LINE
+           PERFORM REVS-SANITIZE-CMD
+           PERFORM ANSI-HIDE-CURSOR
+           IF WS-CMD-NORM = SPACES OR WS-CMD-NORM = "B"
+              OR WS-CMD-NORM = "BACK" OR WS-CMD-NORM = "MENU"
+              OR WS-CMD-NORM = "EXIT" OR WS-CMD-NORM = "QUIT"
+               MOVE "Y" TO WS-REVS-BACK
+               EXIT PARAGRAPH
+           END-IF
+           MOVE FUNCTION TRIM(WS-CMD-LINE) TO WS-REVS-TXN.
+
+       REVS-PREFLIGHT.
+           MOVE "N" TO WS-PF-LOADED
+           MOVE SPACES TO WS-ERR-MSG
+           IF WS-REVS-TXN(1:18) IS NOT NUMERIC
+               MOVE LBL-R-BADTXN TO WS-ERR-MSG
+               EXIT PARAGRAPH
+           END-IF
+           MOVE WS-REVS-TXN TO HV-TXN
+           MOVE SPACES TO HV-PF-STAT
+           PERFORM PG-COMMIT
+           EXEC SQL
+               SELECT TO_CHAR(business_date,'YYYY-MM-DD'),
+                      category, amount_jpy, status, account_number
+                 INTO :HV-PF-BD, :HV-PF-CAT, :HV-PF-AMT,
+                      :HV-PF-STAT, :HV-PF-ACCT
+                 FROM transactions
+                WHERE txn_id = :HV-TXN
+           END-EXEC
+           IF SQLCODE NOT = 0 OR HV-PF-STAT = SPACES
+               MOVE LBL-R-NOTFOUND TO WS-ERR-MSG
+               EXIT PARAGRAPH
+           END-IF
+           IF HV-PF-STAT NOT = "PT" AND HV-PF-STAT NOT = "SE"
+               MOVE LBL-R-NOTREVERS TO WS-ERR-MSG
+               EXIT PARAGRAPH
+           END-IF
+           MOVE "Y" TO WS-PF-LOADED.
+
+       REVS-DO-ATTEMPT.
+           PERFORM REVS-ENSURE-OPERATOR
+           IF WS-OPERATOR = SPACES
+               MOVE LBL-R-CANCELLED TO WS-ERR-MSG
+               EXIT PARAGRAPH
+           END-IF
+           PERFORM REVS-RENDER
+           PERFORM REVS-ACCEPT-REASON
+           IF WS-REVS-REASON = SPACES
+               MOVE LBL-R-CANCELLED TO WS-ERR-MSG
+               EXIT PARAGRAPH
+           END-IF
+           PERFORM REVS-RENDER
+           PERFORM REVS-CONFIRM
+           IF WS-REVS-CONFIRMED NOT = "Y"
+               MOVE LBL-R-CANCELLED TO WS-ERR-MSG
+               EXIT PARAGRAPH
+           END-IF
+           PERFORM REVS-EXECUTE.
+
+       REVS-ENSURE-OPERATOR.
+           IF WS-OPERATOR NOT = SPACES
+               EXIT PARAGRAPH
+           END-IF
+           MOVE 4 TO WS-AT-ROW  MOVE 22 TO WS-AT-COL
+           PERFORM ANSI-CURSOR-AT
+           PERFORM ANSI-SHOW-CURSOR
+           MOVE SPACES TO WS-CMD-LINE
+           ACCEPT WS-CMD-LINE
+           PERFORM REVS-SANITIZE-CMD
+           PERFORM ANSI-HIDE-CURSOR
+           MOVE FUNCTION TRIM(WS-CMD-LINE) TO WS-OPERATOR.
+
+       REVS-ACCEPT-REASON.
+           MOVE 14 TO WS-AT-ROW  MOVE 22 TO WS-AT-COL
+           PERFORM ANSI-CURSOR-AT
+           PERFORM ANSI-SHOW-CURSOR
+           MOVE SPACES TO WS-REVS-REASON
+           ACCEPT WS-REVS-REASON
+           INSPECT WS-REVS-REASON REPLACING ALL X"0D" BY SPACE
+           INSPECT WS-REVS-REASON REPLACING ALL X"0A" BY SPACE
+           INSPECT WS-REVS-REASON REPLACING ALL X"09" BY SPACE
+           PERFORM ANSI-HIDE-CURSOR
+           IF FUNCTION TRIM(WS-REVS-REASON) = SPACES
+               MOVE SPACES TO WS-REVS-REASON
+           END-IF.
+
+       REVS-CONFIRM.
+           MOVE "N" TO WS-REVS-CONFIRMED
+           MOVE 18 TO WS-AT-ROW  MOVE 40 TO WS-AT-COL
+           PERFORM ANSI-CURSOR-AT
+           PERFORM ANSI-SHOW-CURSOR
+           MOVE SPACES TO WS-CMD-LINE
+           ACCEPT WS-CMD-LINE
+           PERFORM REVS-SANITIZE-CMD
+           PERFORM ANSI-HIDE-CURSOR
+           IF WS-CMD-NORM = "Y" OR WS-CMD-NORM = "YES"
+               MOVE "Y" TO WS-REVS-CONFIRMED
+           END-IF.
+
+       REVS-EXECUTE.
+           MOVE "N" TO WS-REVS-SUCCESS
+           IF WS-ALLOW-WRITE NOT = "Y"
+               MOVE LBL-R-READONLY TO WS-ERR-MSG
+               EXIT PARAGRAPH
+           END-IF
+           PERFORM REVS-GEN-REQID
+           PERFORM REVS-MKDIR
+           PERFORM REVS-WRITE-REQUEST
+           IF WS-REQ-FS NOT = "00"
+               MOVE LBL-R-ERR12 TO WS-ERR-MSG
+               EXIT PARAGRAPH
+           END-IF
+           PERFORM REVS-CALL-SCRIPT
+           EVALUATE WS-REVS-RC
+               WHEN 0 CONTINUE
+               WHEN 3
+                   MOVE LBL-R-ERRGATE TO WS-ERR-MSG
+                   EXIT PARAGRAPH
+               WHEN 4
+                   MOVE LBL-R-ERRTO TO WS-ERR-MSG
+                   EXIT PARAGRAPH
+               WHEN OTHER
+                   MOVE LBL-R-ERR12 TO WS-ERR-MSG
+                   EXIT PARAGRAPH
+           END-EVALUATE
+           PERFORM REVS-READ-RESULT
+           IF WS-RES-FS NOT = "00"
+               MOVE LBL-R-ERR12 TO WS-ERR-MSG
+               EXIT PARAGRAPH
+           END-IF
+           IF FUNCTION TRIM(WS-RES-REQID) NOT =
+              FUNCTION TRIM(WS-REQ-ID)
+               MOVE LBL-R-ERR12 TO WS-ERR-MSG
+               EXIT PARAGRAPH
+           END-IF
+           IF WS-RES-STATUS NOT = "00"
+               PERFORM REVS-MAP-STATUS-ERR
+               EXIT PARAGRAPH
+           END-IF
+           IF WS-RES-RVID(9:1) NOT = "9"
+               MOVE LBL-R-ERR12 TO WS-ERR-MSG
+               EXIT PARAGRAPH
+           END-IF
+           PERFORM REVS-VERIFY-PG
+           IF WS-RV-CONFIRMED NOT = "Y"
+               MOVE LBL-R-ERR12 TO WS-ERR-MSG
+               EXIT PARAGRAPH
+           END-IF
+           MOVE "Y" TO WS-REVS-SUCCESS
+           MOVE SPACES TO WS-ERR-MSG
+           STRING FUNCTION TRIM(LBL-R-OK) " " WS-RES-RVID
+                  DELIMITED BY SIZE INTO WS-OK-MSG.
+
+       REVS-GEN-REQID.
+           MOVE FUNCTION CURRENT-DATE TO WS-FUNC-DATE
+           MOVE SPACES TO WS-REQ-ID
+           STRING "R" WS-FUNC-DATE(1:16)
+                  DELIMITED BY SIZE INTO WS-REQ-ID.
+
+       REVS-MKDIR.
+           MOVE SPACES TO WS-CMD
+           STRING "mkdir -p " FUNCTION TRIM(WS-REVS-DIR)
+                  DELIMITED BY SIZE INTO WS-CMD
+           CALL "SYSTEM" USING WS-CMD.
+
+       REVS-WRITE-REQUEST.
+           OPEN OUTPUT REVREQ-FILE
+           IF WS-REQ-FS NOT = "00"
+               EXIT PARAGRAPH
+           END-IF
+           MOVE WS-REQ-ID TO REVREQ-REC      WRITE REVREQ-REC
+           MOVE WS-REVS-TXN TO REVREQ-REC    WRITE REVREQ-REC
+           MOVE WS-REVS-REASON TO REVREQ-REC WRITE REVREQ-REC
+           MOVE WS-OPERATOR TO REVREQ-REC    WRITE REVREQ-REC
+           CLOSE REVREQ-FILE.
+
+       REVS-CALL-SCRIPT.
+           MOVE SPACES TO WS-CMD
+           STRING "rm -f " FUNCTION TRIM(WS-RES-PATH)
+                  DELIMITED BY SIZE INTO WS-CMD
+           CALL "SYSTEM" USING WS-CMD
+           MOVE SPACES TO WS-CMD
+           STRING "bash " FUNCTION TRIM(WS-REVS-SCRIPT)
+                  " " FUNCTION TRIM(WS-REVS-DIR)
+                  DELIMITED BY SIZE INTO WS-CMD
+           CALL "SYSTEM" USING WS-CMD
+           DIVIDE RETURN-CODE BY 256 GIVING WS-REVS-RC.
+
+       REVS-READ-RESULT.
+           MOVE SPACES TO WS-RES-LINE WS-RES-REQID
+                          WS-RES-STATUS WS-RES-RVID WS-RES-INDOUBT
+           MOVE "N" TO WS-RES-FOUND
+           OPEN INPUT REVRES-FILE
+           IF WS-RES-FS NOT = "00"
+               EXIT PARAGRAPH
+           END-IF
+           READ REVRES-FILE
+               AT END CONTINUE
+               NOT AT END
+                   MOVE REVRES-REC TO WS-RES-LINE
+                   MOVE "Y" TO WS-RES-FOUND
+           END-READ
+           CLOSE REVRES-FILE
+           IF WS-RES-FOUND = "Y"
+               PERFORM REVS-PARSE-RESULT
+           ELSE
+               MOVE "10" TO WS-RES-FS
+           END-IF.
+
+       REVS-PARSE-RESULT.
+           MOVE 1 TO WS-RES-FLD
+           MOVE 0 TO WS-RES-IDX2
+           PERFORM VARYING WS-RES-IDX FROM 1 BY 1
+                   UNTIL WS-RES-IDX > 160
+               MOVE WS-RES-LINE(WS-RES-IDX:1) TO WS-RES-CH
+               IF WS-RES-CH = "|"
+                   ADD 1 TO WS-RES-FLD
+                   MOVE 0 TO WS-RES-IDX2
+               ELSE
+                   ADD 1 TO WS-RES-IDX2
+                   EVALUATE WS-RES-FLD
+                       WHEN 1
+                           IF WS-RES-IDX2 <= 20
+                               MOVE WS-RES-CH
+                                    TO WS-RES-REQID(WS-RES-IDX2:1)
+                           END-IF
+                       WHEN 2
+                           IF WS-RES-IDX2 <= 2
+                               MOVE WS-RES-CH
+                                    TO WS-RES-STATUS(WS-RES-IDX2:1)
+                           END-IF
+                       WHEN 3
+                           IF WS-RES-IDX2 <= 18
+                               MOVE WS-RES-CH
+                                    TO WS-RES-RVID(WS-RES-IDX2:1)
+                           END-IF
+                       WHEN 4
+                           IF WS-RES-IDX2 <= 1
+                               MOVE WS-RES-CH
+                                    TO WS-RES-INDOUBT(WS-RES-IDX2:1)
+                           END-IF
+                       WHEN OTHER CONTINUE
+                   END-EVALUATE
+               END-IF
+           END-PERFORM.
+
+       REVS-VERIFY-PG.
+           MOVE "N" TO WS-RV-CONFIRMED
+           MOVE WS-RES-RVID TO HV-TXN
+           PERFORM PG-COMMIT
+           EXEC SQL
+               SELECT COUNT(*) INTO :HV-RV-CNT FROM transactions
+                WHERE txn_id = :HV-TXN AND status = 'RV'
+           END-EXEC
+           IF SQLCODE = 0 AND HV-RV-CNT = 1
+               MOVE "Y" TO WS-RV-CONFIRMED
+           END-IF.
+
+       REVS-MAP-STATUS-ERR.
+           EVALUATE WS-RES-STATUS
+               WHEN "04" MOVE LBL-R-ERR04 TO WS-ERR-MSG
+               WHEN "08" MOVE LBL-R-ERR08 TO WS-ERR-MSG
+               WHEN "12" MOVE LBL-R-ERR12 TO WS-ERR-MSG
+               WHEN OTHER MOVE LBL-R-ERR12 TO WS-ERR-MSG
+           END-EVALUATE.
+
+       REVS-JUMP-JRNL.
+           MOVE WS-RES-RVID TO HV-TXN
+           PERFORM PG-COMMIT
+           EXEC SQL
+               SELECT COUNT(*) INTO :HV-RANK FROM transactions
+                WHERE txn_id <= :HV-TXN
+           END-EXEC
+           IF HV-RANK < 1
+               MOVE 1 TO WS-PAGE
+           ELSE
+               COMPUTE WS-PAGE =
+                   FUNCTION INTEGER((HV-RANK - 1) / WS-PAGE-SIZE) + 1
+           END-IF
+           PERFORM JRNL-COUNT
+           PERFORM JRNL-LOAD-PAGE
+           PERFORM JRNL-RENDER
+           IF WS-OK-MSG NOT = SPACES
+               MOVE WS-CLR-HI TO WS-PUT-COLOR
+               MOVE 24 TO WS-AT-ROW  MOVE 2 TO WS-AT-COL
+               MOVE WS-OK-MSG TO WS-PUT-TEXT  PERFORM ANSI-PUT
+               MOVE WS-CLR-BASE TO WS-PUT-COLOR
+           END-IF
+           PERFORM JRNL-EVENT-LOOP.
+
+       REVS-PARSE-ROW.
+           MOVE 0 TO WS-ROW-PICK
+           MOVE "N" TO WS-ROW-OK
+           IF WS-CMD-NORM(1:1) NOT = "R"
+               EXIT PARAGRAPH
+           END-IF
+           IF WS-CMD-NORM(4:17) NOT = SPACES
+               EXIT PARAGRAPH
+           END-IF
+           MOVE WS-CMD-NORM(2:2) TO WS-ROW-DIGITS
+           IF FUNCTION TRIM(WS-ROW-DIGITS) = SPACES
+               EXIT PARAGRAPH
+           END-IF
+           IF FUNCTION TRIM(WS-ROW-DIGITS) IS NUMERIC
+               COMPUTE WS-ROW-PICK =
+                   FUNCTION NUMVAL(WS-ROW-DIGITS)
+           END-IF
+           IF WS-ROW-PICK >= 1 AND WS-ROW-PICK <= 10
+               MOVE "Y" TO WS-ROW-OK
+           ELSE
+               MOVE 0 TO WS-ROW-PICK
+           END-IF.
+
+       REVS-RENDER.
+           PERFORM RENDER-HDR-ANSI
+           MOVE LBL-R-OPER TO WS-FLD-LBL
+           MOVE WS-OPERATOR TO WS-FLD-VAL
+           MOVE 4 TO WS-FLD-LINE  PERFORM RENDER-FIELD
+           MOVE LBL-R-TXN TO WS-FLD-LBL
+           MOVE WS-REVS-TXN TO WS-FLD-VAL
+           MOVE 6 TO WS-FLD-LINE  PERFORM RENDER-FIELD
+           IF WS-PF-LOADED = "Y"
+               PERFORM REVS-RENDER-DETAIL
+               MOVE LBL-R-REASON TO WS-FLD-LBL
+               MOVE WS-REVS-REASON TO WS-FLD-VAL
+               MOVE 14 TO WS-FLD-LINE  PERFORM RENDER-FIELD
+               MOVE "1;33" TO WS-PUT-COLOR
+               MOVE 18 TO WS-AT-ROW  MOVE 4 TO WS-AT-COL
+               MOVE LBL-R-CONFIRM TO WS-PUT-TEXT  PERFORM ANSI-PUT
+               MOVE WS-CLR-BASE TO WS-PUT-COLOR
+           END-IF
+           IF WS-ALLOW-WRITE NOT = "Y"
+               MOVE "1;33" TO WS-PUT-COLOR
+               MOVE 19 TO WS-AT-ROW  MOVE 4 TO WS-AT-COL
+               MOVE LBL-R-READONLY TO WS-PUT-TEXT  PERFORM ANSI-PUT
+               MOVE WS-CLR-BASE TO WS-PUT-COLOR
+           END-IF
+           PERFORM REVS-RENDER-FOOT.
+
+       REVS-RENDER-DETAIL.
+           MOVE LBL-R-BD TO WS-FLD-LBL
+           MOVE HV-PF-BD TO WS-FLD-VAL
+           MOVE 8 TO WS-FLD-LINE  PERFORM RENDER-FIELD
+           MOVE LBL-R-CAT TO WS-FLD-LBL
+           MOVE HV-PF-CAT TO HV-CAT
+           PERFORM MAP-CAT
+           MOVE WS-MVAL TO WS-FLD-VAL
+           MOVE 9 TO WS-FLD-LINE  PERFORM RENDER-FIELD
+           MOVE LBL-R-AMT TO WS-FLD-LBL
+           MOVE HV-PF-AMT TO WS-PF-AMT-EDIT
+           MOVE WS-PF-AMT-EDIT TO WS-FLD-VAL
+           MOVE 10 TO WS-FLD-LINE  PERFORM RENDER-FIELD
+           MOVE LBL-R-STAT TO WS-FLD-LBL
+           MOVE HV-PF-STAT TO WS-FLD-VAL
+           MOVE 11 TO WS-FLD-LINE  PERFORM RENDER-FIELD.
+
+       REVS-RENDER-FOOT.
+           MOVE 21 TO WS-SEP-ROW  PERFORM DRAW-SEP
+           MOVE WS-CLR-REV TO WS-PUT-COLOR
+           MOVE 23 TO WS-AT-ROW  MOVE 2 TO WS-AT-COL
+           MOVE WS-SCR-PF TO WS-PUT-TEXT  PERFORM ANSI-PUT
+           IF WS-OK-MSG NOT = SPACES
+               MOVE WS-CLR-HI TO WS-PUT-COLOR
+               MOVE 24 TO WS-AT-ROW  MOVE 2 TO WS-AT-COL
+               MOVE WS-OK-MSG TO WS-PUT-TEXT  PERFORM ANSI-PUT
+           END-IF
+           IF WS-ERR-MSG NOT = SPACES
+               MOVE "1;31" TO WS-PUT-COLOR
+               MOVE 24 TO WS-AT-ROW  MOVE 2 TO WS-AT-COL
+               MOVE WS-ERR-MSG TO WS-PUT-TEXT  PERFORM ANSI-PUT
+           END-IF
+           MOVE WS-CLR-BASE TO WS-PUT-COLOR.
+
+        POST-TRAN.
+            MOVE "PBNK-POST"   TO WS-SCR-PFX
+            MOVE LBL-POSTTITLE TO WS-SCR-TITLE
+            MOVE LBL-PF-POST   TO WS-SCR-PF
+            MOVE SPACES TO WS-ERR-MSG WS-OK-MSG WS-STATUS-MSG
+            MOVE 0 TO WS-PNUM
+            IF NOT SCREEN-ON
+                DISPLAY FUNCTION TRIM(LBL-POSTTITLE)
+                EXIT PARAGRAPH
+            END-IF
+            PERFORM POST-EVENT-LOOP.
+
+        POST-EVENT-LOOP.
+            MOVE "N" TO WS-EXIT-FLAG
+            PERFORM UNTIL WS-EXIT-FLAG = "Y"
+                PERFORM POST-RENDER
+                PERFORM POST-READ-CMD
+                EVALUATE WS-CMD-NORM
+                    WHEN SPACES
+                    WHEN "B"
+                    WHEN "BACK"
+                    WHEN "MENU"
+                    WHEN "EXIT"
+                    WHEN "QUIT"
+                        MOVE "Y" TO WS-EXIT-FLAG
+                    WHEN "A"
+                    WHEN "ADD"
+                        PERFORM POST-ADD-ITEM
+                    WHEN "C"
+                    WHEN "CLEAR"
+                        MOVE 0 TO WS-PNUM
+                        MOVE SPACES TO WS-ERR-MSG
+                        MOVE LBL-P-CLEARED TO WS-OK-MSG
+                    WHEN "G"
+                    WHEN "GO"
+                    WHEN "POST"
+                        PERFORM POST-SUBMIT
+                        IF WS-PRES-STATUS = "OK" OR
+                           WS-PRES-STATUS = "PARTIAL"
+                            PERFORM POST-JUMP-JRNL
+                            MOVE "Y" TO WS-EXIT-FLAG
+                        END-IF
+                    WHEN OTHER
+                        CONTINUE
+                END-EVALUATE
+            END-PERFORM.
+
+        POST-READ-CMD.
+            PERFORM PG-COMMIT
+            MOVE 22 TO WS-AT-ROW  MOVE 22 TO WS-AT-COL
+            PERFORM ANSI-CURSOR-AT
+            PERFORM ANSI-SHOW-CURSOR
+            MOVE SPACES TO WS-CMD-LINE
+            ACCEPT WS-CMD-LINE
+            PERFORM POST-SANITIZE
+            PERFORM ANSI-HIDE-CURSOR.
+
+        POST-SANITIZE.
+            INSPECT WS-CMD-LINE REPLACING ALL X"0D" BY SPACE
+            INSPECT WS-CMD-LINE REPLACING ALL X"0A" BY SPACE
+            INSPECT WS-CMD-LINE REPLACING ALL X"09" BY SPACE
+            MOVE FUNCTION UPPER-CASE(FUNCTION TRIM(WS-CMD-LINE))
+                 TO WS-CMD-NORM.
+
+        POST-ADD-ITEM.
+            MOVE SPACES TO WS-ERR-MSG WS-OK-MSG
+            IF WS-PNUM >= 10
+                MOVE LBL-P-FULL TO WS-ERR-MSG
+                EXIT PARAGRAPH
+            END-IF
+            MOVE 16 TO WS-AT-ROW  MOVE 35 TO WS-AT-COL
+            PERFORM POST-ACCEPT-FIELD
+            IF WS-POST-BACK = "Y"
+                EXIT PARAGRAPH
+            END-IF
+            EVALUATE WS-CMD-NORM
+                WHEN "D" MOVE "10" TO WS-POST-CAT
+                WHEN "W" MOVE "20" TO WS-POST-CAT
+                WHEN "T" MOVE "30" TO WS-POST-CAT
+                WHEN OTHER
+                    MOVE LBL-P-BADCAT TO WS-ERR-MSG
+                    EXIT PARAGRAPH
+            END-EVALUATE
+            MOVE 17 TO WS-AT-ROW  MOVE 18 TO WS-AT-COL
+            PERFORM POST-ACCEPT-FIELD
+            IF WS-POST-BACK = "Y"
+                EXIT PARAGRAPH
+            END-IF
+            MOVE WS-CMD-NORM(1:13) TO WS-POST-PAYER
+            MOVE SPACES TO WS-POST-PAYEE
+            IF WS-POST-CAT = "30"
+                MOVE 18 TO WS-AT-ROW  MOVE 24 TO WS-AT-COL
+                PERFORM POST-ACCEPT-FIELD
+                IF WS-POST-BACK = "Y"
+                    EXIT PARAGRAPH
+                END-IF
+                MOVE WS-CMD-NORM(1:13) TO WS-POST-PAYEE
+            END-IF
+            MOVE 19 TO WS-AT-ROW  MOVE 18 TO WS-AT-COL
+            PERFORM POST-ACCEPT-FIELD
+            IF WS-POST-BACK = "Y"
+                EXIT PARAGRAPH
+            END-IF
+            MOVE 0 TO WS-POST-AMT
+            COMPUTE WS-POST-AMT = FUNCTION NUMVAL(WS-CMD-NORM)
+            PERFORM POST-VALIDATE-ITEM
+            IF WS-ERR-MSG = SPACES
+                ADD 1 TO WS-PNUM
+                MOVE WS-POST-CAT   TO PI-CAT(WS-PNUM)
+                MOVE WS-POST-PAYER TO PI-PAYER(WS-PNUM)
+                MOVE WS-POST-PAYEE TO PI-PAYEE(WS-PNUM)
+                MOVE WS-POST-AMT   TO PI-AMT(WS-PNUM)
+                MOVE SPACES        TO PI-DESC(WS-PNUM)
+                MOVE LBL-P-ADDED TO WS-OK-MSG
+            END-IF.
+
+        POST-ACCEPT-FIELD.
+            PERFORM ANSI-CURSOR-AT
+            PERFORM ANSI-SHOW-CURSOR
+            MOVE SPACES TO WS-CMD-LINE
+            ACCEPT WS-CMD-LINE
+            PERFORM POST-SANITIZE
+            PERFORM ANSI-HIDE-CURSOR
+            MOVE "N" TO WS-POST-BACK
+            IF WS-CMD-NORM = SPACES OR WS-CMD-NORM = "B"
+               OR WS-CMD-NORM = "BACK"
+                MOVE "Y" TO WS-POST-BACK
+            END-IF.
+
+        POST-VALIDATE-ITEM.
+            MOVE SPACES TO WS-ERR-MSG
+            IF WS-POST-AMT = 0
+                MOVE LBL-P-BADAMT TO WS-ERR-MSG
+                EXIT PARAGRAPH
+            END-IF
+            IF WS-POST-PAYER(1:12) = "001001000000"
+                MOVE LBL-P-SYSACCT TO WS-ERR-MSG
+                EXIT PARAGRAPH
+            END-IF
+            MOVE WS-POST-PAYER TO HV-ACCT
+            PERFORM POST-CHECK-ACCT
+            IF WS-NF-FLAG = "Y"
+                MOVE LBL-P-BADACCT TO WS-ERR-MSG
+                EXIT PARAGRAPH
+            END-IF
+            IF WS-POST-CAT = "30"
+                IF WS-POST-PAYEE(1:12) = "001001000000"
+                    MOVE LBL-P-SYSACCT TO WS-ERR-MSG
+                    EXIT PARAGRAPH
+                END-IF
+                IF FUNCTION TRIM(WS-POST-PAYER) =
+                   FUNCTION TRIM(WS-POST-PAYEE)
+                    MOVE LBL-P-SELFXFER TO WS-ERR-MSG
+                    EXIT PARAGRAPH
+                END-IF
+                MOVE WS-POST-PAYEE TO HV-ACCT
+                PERFORM POST-CHECK-ACCT
+                IF WS-NF-FLAG = "Y"
+                    MOVE LBL-P-BADACCT TO WS-ERR-MSG
+                END-IF
+            END-IF.
+
+        POST-CHECK-ACCT.
+            MOVE "N" TO WS-NF-FLAG
+            MOVE SPACES TO HV-ASTATUS
+            PERFORM PG-COMMIT
+            EXEC SQL
+                SELECT acct_status INTO :HV-ASTATUS
+                  FROM accounts WHERE acct_number = :HV-ACCT
+            END-EXEC
+            IF SQLCODE NOT = 0 OR HV-ASTATUS NOT = "A"
+                MOVE "Y" TO WS-NF-FLAG
+            END-IF.
+
+        POST-SUBMIT.
+            MOVE SPACES TO WS-ERR-MSG WS-OK-MSG
+            MOVE SPACES TO WS-PRES-STATUS
+            IF WS-PNUM = 0
+                MOVE LBL-P-EMPTY TO WS-ERR-MSG
+                EXIT PARAGRAPH
+            END-IF
+            IF WS-ALLOW-WRITE NOT = "Y"
+                MOVE LBL-P-READONLY TO WS-ERR-MSG
+                EXIT PARAGRAPH
+            END-IF
+            PERFORM POST-RENDER
+            MOVE 20 TO WS-AT-ROW  MOVE 4 TO WS-AT-COL
+            MOVE "1;33" TO WS-PUT-COLOR
+            MOVE LBL-P-CONFIRM TO WS-PUT-TEXT  PERFORM ANSI-PUT
+            MOVE WS-CLR-BASE TO WS-PUT-COLOR
+            MOVE 20 TO WS-AT-ROW  MOVE 53 TO WS-AT-COL
+            PERFORM ANSI-CURSOR-AT
+            PERFORM ANSI-SHOW-CURSOR
+            MOVE SPACES TO WS-CMD-LINE
+            ACCEPT WS-CMD-LINE
+            PERFORM POST-SANITIZE
+            PERFORM ANSI-HIDE-CURSOR
+            IF WS-CMD-NORM NOT = "Y" AND WS-CMD-NORM NOT = "YES"
+                MOVE LBL-P-CANCELLED TO WS-ERR-MSG
+                EXIT PARAGRAPH
+            END-IF
+            PERFORM POST-WRITE-REQUEST
+            PERFORM POST-CALL-SCRIPT
+            PERFORM POST-READ-RESULT
+            PERFORM POST-MAP-RESULT.
+
+        POST-WRITE-REQUEST.
+            MOVE SPACES TO WS-CMD
+            STRING "mkdir -p " FUNCTION TRIM(WS-POST-DIR)
+                   DELIMITED BY SIZE INTO WS-CMD
+            CALL "SYSTEM" USING WS-CMD
+            OPEN OUTPUT POSTREQ-FILE
+            IF WS-PREQ-FS NOT = "00"
+                EXIT PARAGRAPH
+            END-IF
+            MOVE SPACES TO POSTREQ-REC
+            MOVE WS-OPERATOR TO POSTREQ-REC(1:20)
+            WRITE POSTREQ-REC
+            MOVE SPACES TO POSTREQ-REC
+            MOVE WS-PNUM TO POSTREQ-REC(1:2)
+            WRITE POSTREQ-REC
+            PERFORM VARYING WS-PIDX FROM 1 BY 1 UNTIL WS-PIDX > WS-PNUM
+                MOVE SPACES TO POSTREQ-REC
+                MOVE PI-CAT(WS-PIDX)   TO POSTREQ-REC(1:2)
+                MOVE PI-PAYER(WS-PIDX) TO POSTREQ-REC(3:13)
+                MOVE PI-PAYEE(WS-PIDX) TO POSTREQ-REC(16:13)
+                MOVE PI-AMT(WS-PIDX)   TO POSTREQ-REC(29:15)
+                MOVE PI-DESC(WS-PIDX)  TO POSTREQ-REC(44:40)
+                WRITE POSTREQ-REC
+            END-PERFORM
+            CLOSE POSTREQ-FILE.
+
+        POST-CALL-SCRIPT.
+            MOVE SPACES TO WS-CMD
+            STRING "rm -f " FUNCTION TRIM(WS-PRES-PATH)
+                   DELIMITED BY SIZE INTO WS-CMD
+            CALL "SYSTEM" USING WS-CMD
+            MOVE SPACES TO WS-CMD
+            STRING "bash " FUNCTION TRIM(WS-POST-SCRIPT)
+                   " " FUNCTION TRIM(WS-POST-DIR)
+                   DELIMITED BY SIZE INTO WS-CMD
+            CALL "SYSTEM" USING WS-CMD
+            DIVIDE RETURN-CODE BY 256 GIVING WS-POST-RC.
+
+        POST-READ-RESULT.
+            MOVE SPACES TO WS-PRES-LINE WS-PRES-STATUS
+                           WS-PRES-POSTED WS-PRES-REJECT WS-PRES-REASONS
+            OPEN INPUT POSTRES-FILE
+            IF WS-PRES-FS NOT = "00"
+                EXIT PARAGRAPH
+            END-IF
+            READ POSTRES-FILE
+                AT END CONTINUE
+                NOT AT END MOVE POSTRES-REC TO WS-PRES-LINE
+            END-READ
+            CLOSE POSTRES-FILE
+            PERFORM POST-PARSE-RESULT.
+
+        POST-PARSE-RESULT.
+            MOVE 1 TO WS-PRES-FLD
+            MOVE 0 TO WS-PRES-J
+            PERFORM VARYING WS-PRES-IDX FROM 1 BY 1
+                    UNTIL WS-PRES-IDX > 160
+                MOVE WS-PRES-LINE(WS-PRES-IDX:1) TO WS-PRES-CH
+                IF WS-PRES-CH = "|"
+                    ADD 1 TO WS-PRES-FLD
+                    MOVE 0 TO WS-PRES-J
+                ELSE
+                    ADD 1 TO WS-PRES-J
+                    EVALUATE WS-PRES-FLD
+                        WHEN 1
+                            IF WS-PRES-J <= 10
+                                MOVE WS-PRES-CH
+                                     TO WS-PRES-STATUS(WS-PRES-J:1)
+                            END-IF
+                        WHEN 2
+                            IF WS-PRES-J <= 7
+                                MOVE WS-PRES-CH
+                                     TO WS-PRES-POSTED(WS-PRES-J:1)
+                            END-IF
+                        WHEN 3
+                            IF WS-PRES-J <= 7
+                                MOVE WS-PRES-CH
+                                     TO WS-PRES-REJECT(WS-PRES-J:1)
+                            END-IF
+                        WHEN 6
+                            IF WS-PRES-J <= 40
+                                MOVE WS-PRES-CH
+                                     TO WS-PRES-REASONS(WS-PRES-J:1)
+                            END-IF
+                        WHEN OTHER CONTINUE
+                    END-EVALUATE
+                END-IF
+            END-PERFORM.
+
+        POST-MAP-RESULT.
+            MOVE SPACES TO WS-ERR-MSG WS-OK-MSG
+            EVALUATE FUNCTION TRIM(WS-PRES-STATUS)
+                WHEN "OK"
+                    MOVE 0 TO WS-PNUM
+                    STRING FUNCTION TRIM(LBL-P-OK) " "
+                           FUNCTION TRIM(WS-PRES-POSTED)
+                           DELIMITED BY SIZE INTO WS-OK-MSG
+                WHEN "PARTIAL"
+                    MOVE 0 TO WS-PNUM
+                    STRING FUNCTION TRIM(LBL-P-OK) " "
+                           FUNCTION TRIM(WS-PRES-POSTED)
+                           " / NG " FUNCTION TRIM(WS-PRES-REJECT)
+                           " " FUNCTION TRIM(WS-PRES-REASONS)
+                           DELIMITED BY SIZE INTO WS-OK-MSG
+                WHEN "ALREADY"
+                    MOVE LBL-P-ALREADY TO WS-ERR-MSG
+                WHEN "ALLREJECT"
+                    STRING FUNCTION TRIM(LBL-P-ALLREJECT) " "
+                           FUNCTION TRIM(WS-PRES-REASONS)
+                           DELIMITED BY SIZE INTO WS-ERR-MSG
+                WHEN OTHER
+                    MOVE LBL-P-ERR TO WS-ERR-MSG
+            END-EVALUATE.
+
+        POST-JUMP-JRNL.
+            MOVE WS-POST-BDATE TO HV-BDATE
+            PERFORM PG-COMMIT
+            MOVE 0 TO HV-RANK
+            EXEC SQL
+                SELECT COUNT(*) INTO :HV-RANK FROM transactions
+                 WHERE business_date <= CAST(:HV-BDATE AS DATE)
+            END-EXEC
+            IF HV-RANK < 1
+                MOVE 1 TO WS-PAGE
+            ELSE
+                COMPUTE WS-PAGE =
+                    FUNCTION INTEGER((HV-RANK - 1) / WS-PAGE-SIZE) + 1
+            END-IF
+            PERFORM JRNL-COUNT
+            PERFORM JRNL-LOAD-PAGE
+            PERFORM JRNL-RENDER
+            IF WS-OK-MSG NOT = SPACES
+                MOVE WS-CLR-HI TO WS-PUT-COLOR
+                MOVE 24 TO WS-AT-ROW  MOVE 2 TO WS-AT-COL
+                MOVE WS-OK-MSG TO WS-PUT-TEXT  PERFORM ANSI-PUT
+                MOVE WS-CLR-BASE TO WS-PUT-COLOR
+            END-IF
+            PERFORM JRNL-EVENT-LOOP.
+
+        POST-RENDER.
+            PERFORM RENDER-HDR-ANSI
+            MOVE LBL-P-BDATE TO WS-FLD-LBL
+            MOVE WS-POST-BDATE TO WS-FLD-VAL
+            MOVE 4 TO WS-FLD-LINE  PERFORM RENDER-FIELD
+            MOVE WS-CLR-HI TO WS-PUT-COLOR
+            MOVE 5 TO WS-AT-ROW  MOVE 4 TO WS-AT-COL
+            MOVE LBL-P-HDR TO WS-PUT-TEXT  PERFORM ANSI-PUT
+            MOVE WS-CLR-BASE TO WS-PUT-COLOR
+            PERFORM VARYING WS-PIDX FROM 1 BY 1 UNTIL WS-PIDX > WS-PNUM
+                COMPUTE WS-FLD-LINE = 5 + WS-PIDX
+                MOVE 4 TO WS-FLD-COL
+                MOVE PI-CAT(WS-PIDX) TO WS-FLD-VAL  PERFORM RENDER-AT
+                MOVE 8 TO WS-FLD-COL
+                MOVE PI-PAYER(WS-PIDX) TO WS-FLD-VAL  PERFORM RENDER-AT
+                MOVE 24 TO WS-FLD-COL
+                MOVE PI-PAYEE(WS-PIDX) TO WS-FLD-VAL  PERFORM RENDER-AT
+                MOVE PI-AMT(WS-PIDX) TO WS-POST-AMT-DISP
+                MOVE 42 TO WS-FLD-COL
+                MOVE WS-POST-AMT-DISP TO WS-FLD-VAL  PERFORM RENDER-AT
+            END-PERFORM
+            MOVE WS-CLR-BASE TO WS-PUT-COLOR
+            MOVE 16 TO WS-AT-ROW  MOVE 4 TO WS-AT-COL
+            MOVE LBL-P-CATQ TO WS-PUT-TEXT  PERFORM ANSI-PUT
+            MOVE 17 TO WS-AT-ROW  MOVE 4 TO WS-AT-COL
+            MOVE LBL-P-ACCTQ TO WS-PUT-TEXT  PERFORM ANSI-PUT
+            MOVE 18 TO WS-AT-ROW  MOVE 4 TO WS-AT-COL
+            MOVE LBL-P-PAYEEQ TO WS-PUT-TEXT  PERFORM ANSI-PUT
+            MOVE 19 TO WS-AT-ROW  MOVE 4 TO WS-AT-COL
+            MOVE LBL-P-AMTQ TO WS-PUT-TEXT  PERFORM ANSI-PUT
+            IF WS-ALLOW-WRITE NOT = "Y"
+                MOVE "1;33" TO WS-PUT-COLOR
+                MOVE 19 TO WS-AT-ROW  MOVE 40 TO WS-AT-COL
+                MOVE LBL-P-READONLY TO WS-PUT-TEXT  PERFORM ANSI-PUT
+                MOVE WS-CLR-BASE TO WS-PUT-COLOR
+            END-IF
+            PERFORM POST-RENDER-FOOT.
+
+        POST-RENDER-FOOT.
+            MOVE 21 TO WS-SEP-ROW  PERFORM DRAW-SEP
+            MOVE WS-CLR-BASE TO WS-PUT-COLOR
+            MOVE 22 TO WS-AT-ROW  MOVE 4 TO WS-AT-COL
+            MOVE LBL-CMDPROMPT TO WS-PUT-TEXT  PERFORM ANSI-PUT
+            MOVE WS-CLR-REV TO WS-PUT-COLOR
+            MOVE 23 TO WS-AT-ROW  MOVE 2 TO WS-AT-COL
+            MOVE WS-SCR-PF TO WS-PUT-TEXT  PERFORM ANSI-PUT
+            IF WS-OK-MSG NOT = SPACES
+                MOVE WS-CLR-HI TO WS-PUT-COLOR
+                MOVE 24 TO WS-AT-ROW  MOVE 2 TO WS-AT-COL
+                MOVE WS-OK-MSG TO WS-PUT-TEXT  PERFORM ANSI-PUT
+            END-IF
+            IF WS-ERR-MSG NOT = SPACES
+                MOVE "1;31" TO WS-PUT-COLOR
+                MOVE 24 TO WS-AT-ROW  MOVE 2 TO WS-AT-COL
+                MOVE WS-ERR-MSG TO WS-PUT-TEXT  PERFORM ANSI-PUT
+            END-IF
+            MOVE WS-CLR-BASE TO WS-PUT-COLOR.
+
+       END PROGRAM OPER-CONSOLE.

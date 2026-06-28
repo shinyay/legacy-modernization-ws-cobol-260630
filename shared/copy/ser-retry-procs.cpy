@@ -1,0 +1,70 @@
+       INIT-SER-CONFIG.
+           MOVE SPACES TO WS-ENV-BUF
+           ACCEPT WS-ENV-BUF FROM ENVIRONMENT "SER_MAX_RETRIES"
+           IF WS-ENV-BUF NOT = SPACES
+               COMPUTE WS-MAX-RETRIES = FUNCTION NUMVAL(WS-ENV-BUF)
+           END-IF
+           MOVE SPACES TO WS-ENV-BUF
+           ACCEPT WS-ENV-BUF FROM ENVIRONMENT "SER_BACKOFF_MS"
+           IF WS-ENV-BUF NOT = SPACES
+               COMPUTE WS-BACKOFF-BASE-MS = FUNCTION NUMVAL(WS-ENV-BUF)
+           END-IF
+           MOVE SPACES TO WS-ENV-BUF
+           ACCEPT WS-ENV-BUF FROM ENVIRONMENT "SER_FAULT_CONFLICT_N"
+           IF WS-ENV-BUF NOT = SPACES
+               COMPUTE WS-FAULT-CONFLICT-N = FUNCTION NUMVAL(WS-ENV-BUF)
+           END-IF
+           MOVE FUNCTION CURRENT-DATE TO WS-FUNC-DATE-BUF
+           COMPUTE WS-RAND-SEED =
+               FUNCTION NUMVAL(WS-FUNC-DATE-BUF(13:6))
+           MOVE FUNCTION RANDOM(WS-RAND-SEED) TO WS-RAND-INIT.
+
+       CLASSIFY-SQL-RESULT.
+           IF SQLCODE = 0
+               MOVE "OK" TO WS-ATTEMPT-RESULT
+           ELSE
+               IF SQLSTATE = "40001" OR SQLSTATE = "40P01"
+                   MOVE "CONFLICT" TO WS-ATTEMPT-RESULT
+               ELSE
+                   MOVE "DEFER" TO WS-ATTEMPT-RESULT
+               END-IF
+           END-IF.
+
+       CLASSIFY-COMMIT-RESULT.
+           IF SQLCODE = 0 OR SQLCODE = 100
+               MOVE "OK" TO WS-ATTEMPT-RESULT
+           ELSE
+               IF SQLSTATE = "40001" OR SQLSTATE = "40P01"
+                   MOVE "CONFLICT" TO WS-ATTEMPT-RESULT
+               ELSE
+                   MOVE "INDOUBT" TO WS-ATTEMPT-RESULT
+                   MOVE WS-SER-SUBSYS TO WS-LOG-SUBSYSTEM
+                   MOVE "WARN " TO WS-LOG-LEVEL
+                   STRING "anomalous commit failure sqlstate="
+                          SQLSTATE " ctx=" WS-SER-CTX
+                          DELIMITED BY SIZE INTO WS-LOG-MESSAGE
+                   CALL "SHARED-LOG" USING WS-LOG-MSG WS-LOG-RC
+                       ON EXCEPTION CONTINUE
+                   END-CALL
+               END-IF
+           END-IF.
+
+       BACKOFF-SLEEP.
+           MOVE 1 TO WS-BACKOFF-MULT
+           IF WS-RETRY-COUNT > 1
+               COMPUTE WS-BACKOFF-N = WS-RETRY-COUNT - 1
+               PERFORM WS-BACKOFF-N TIMES
+                   COMPUTE WS-BACKOFF-MULT = WS-BACKOFF-MULT * 2
+               END-PERFORM
+           END-IF
+           COMPUTE WS-BACKOFF-MS = WS-BACKOFF-BASE-MS * WS-BACKOFF-MULT
+           IF WS-BACKOFF-MS > WS-BACKOFF-CAP-MS
+               MOVE WS-BACKOFF-CAP-MS TO WS-BACKOFF-MS
+           END-IF
+           COMPUTE WS-JITTER-MS =
+               FUNCTION RANDOM * WS-BACKOFF-BASE-MS
+           COMPUTE WS-BACKOFF-MS = WS-BACKOFF-MS + WS-JITTER-MS
+           COMPUTE WS-BACKOFF-NANOS = WS-BACKOFF-MS * 1000000
+           IF WS-BACKOFF-NANOS > 0
+               CALL "CBL_OC_NANOSLEEP" USING WS-BACKOFF-NANOS
+           END-IF.

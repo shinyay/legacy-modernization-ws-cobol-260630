@@ -1,0 +1,17 @@
+[Unit]
+Description=PRACTICE BANK Monthly Partition Rollover Run (= 21-audit ops-partition-rollover)
+After=network.target postgresql.service
+
+[Service]
+Type=oneshot
+User=batch
+Group=batch
+WorkingDirectory=/opt/practice-bank
+EnvironmentFile=/opt/practice-bank/etc/practice-bank.env
+ExecStart=/usr/bin/make -C /opt/practice-bank/subsystems/22-operations partition-rollover
+StandardOutput=journal
+StandardError=journal
+TimeoutStartSec=30min
+
+[Install]
+WantedBy=multi-user.target
