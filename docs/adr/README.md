@@ -53,6 +53,6 @@ Michael Nygard 形式（軽量）。1判断 = 1ファイル。
 | [0023](0023-supervisor-planner-executor-checker-topology.md) | ループに supervisor/planner/executor/checker の役割分担を明示 | Accepted | 2026-06-28 |
 | [0024](0024-trim-migration-rewrite.md) | TRIM-FUNCTION-TEST 移行判断 — Java rewrite 採用 | Accepted | 2026-06-28 |
 | [0025](0025-numval-test-migration-rewrite.md) | NUMVAL-TEST 移行判断 — Java rewrite 採用 | Accepted | 2026-06-28 |
-| [0026](0026-container-granularity-subsystem-job.md) | コンテナ粒度 = サブシステム/ジョブ単位 | Proposed | 2026-06-29 |
-| [0027](0027-practice-bank-rehost-no-java-rewrite.md) | Practice Bank は Java rewrite せず rehost コンテナ移行 | Proposed | 2026-06-29 |
-| [0028](0028-subsystem-spec-and-manifest-block.md) | サブシステム単位 spec ＋ manifest subsystems ブロック導入 | Proposed | 2026-06-29 |
+| [0026](0026-container-granularity-subsystem-job.md) | コンテナ粒度 = サブシステム/ジョブ単位 | Accepted | 2026-06-29 |
+| [0027](0027-practice-bank-rehost-no-java-rewrite.md) | Practice Bank は Java rewrite せず rehost コンテナ移行 | Accepted | 2026-06-29 |
+| [0028](0028-subsystem-spec-and-manifest-block.md) | サブシステム単位 spec ＋ manifest subsystems ブロック導入 | Accepted | 2026-06-29 |

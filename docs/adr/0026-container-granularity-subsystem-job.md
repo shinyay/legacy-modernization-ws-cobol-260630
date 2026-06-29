@@ -1,6 +1,6 @@
 # ADR-0026: コンテナ粒度 = サブシステム/ジョブ単位（プログラム単位にしない）
 
-- **Status**: Proposed
+- **Status**: Accepted
 - **Date**: 2026-06-29
 - **Deciders**: @hagishun
 

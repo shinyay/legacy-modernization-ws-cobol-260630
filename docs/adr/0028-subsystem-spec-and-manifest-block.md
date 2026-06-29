@@ -1,6 +1,6 @@
 # ADR-0028: サブシステム単位 spec と manifest subsystems ブロックを導入する
 
-- **Status**: Proposed
+- **Status**: Accepted
 - **Date**: 2026-06-29
 - **Deciders**: @hagishun
 
