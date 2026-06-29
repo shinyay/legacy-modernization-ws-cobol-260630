@@ -18,7 +18,6 @@ frontmatter は **`name`**（`title` ではない）/ `description`（`USE FOR:`
 | `deployer.agent.md` | Bicep+azd で Azure を provisioning、Azure MCP で確認運用 | 移行(Azure) | `read, search, edit, execute, todo` |
 | `cobol-analyzer.agent.md` | I/O 仕様・実行方法・データ定義を解析（read-only） | 解析 | `read, search` |
 | `spec-extractor.agent.md` | **Code→Doc**: COBOL の業務仕様を `specs/<prog>.md` に機械抽出（tree-sitter/`tools/spec-extract`）して構造化 | maker-1 | `read, search, edit, todo` |
-| `migrator.agent.md` | **Doc→Code**: spec から Java 生成、不可なら wrapper | maker-2 | `read, search, edit, execute, todo` |
 | `verifier.agent.md` | candidate == golden ＋ intent 妥当性 ＋ ADR(Proposed) | checker | `read, search, edit, execute, todo` |
 
 > `tools` はパス制限まではできないため、「migrator は golden を触らない / verifier はコードを触らない」は各 `.agent.md` 本文の**ガードレール**で縛る。
