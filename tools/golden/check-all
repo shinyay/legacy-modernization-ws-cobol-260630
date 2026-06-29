@@ -1,0 +1,91 @@
+#!/usr/bin/env sh
+# check-all — run the golden equivalence gate for EVERY migrated program.
+#
+# Program-independent (ADR-0018): adding a program needs NO change here and NO
+# change to .github/workflows/ci.yml. The manifest (manifest.yaml) is the ledger;
+# this driver reads each program's COBOL source path from it, then for every
+# program that has a candidate (tests/<prog>/cmd):
+#   1. freeze the COBOL golden (cobc),
+#   2. guard against drift vs the committed golden,
+#   3. verify the candidate (Java/wrapper) == golden.
+#
+# Per ADR-0013, this runs in CI/container (needs cobc + a JRE), never on the Mac host.
+#
+# Usage: tools/golden/check-all [manifest.yaml]
+set -eu
+
+root="$(CDPATH= cd "$(dirname "$0")/../.." && pwd)"
+cd "$root"
+
+manifest="${1:-manifest.yaml}"
+if [ ! -f "$manifest" ]; then
+  echo "check-all: no manifest ($manifest) — nothing to verify."
+  exit 0
+fi
+
+# Emit "<prog>\t<src>" for each uncommented program entry. The prog key is the
+# basename of the program's `tests:` dir (e.g. tests/interest/ -> interest), and
+# src is its `path:` (the COBOL source, which may live under samples/ or legacy/).
+# Commented template lines start with '#', so they never match $1=="-".
+list="$(awk '
+  $1=="-" && $2=="name:" { path=""; tests=""; fmt="" }
+  $1=="path:"            { path=$2 }
+  $1=="format:"          { fmt=$2 }
+  $1=="tests:"           {
+                            tests=$2; sub(/\/+$/, "", tests);
+                            n=tests; sub(/.*\//, "", n);
+                            if (path != "" && n != "") print n "\t" path "\t" fmt
+                          }
+' "$manifest")"
+
+if [ -z "$list" ]; then
+  # Guard against a parser/format bug that silently yields zero programs:
+  # if the manifest actually has entries, fail loudly instead of passing vacuously.
+  if grep -qE '^[[:space:]]*-[[:space:]]+name:' "$manifest"; then
+    echo "::error::check-all: $manifest has program entries but none parsed — likely a manifest format or parser bug." >&2
+    exit 1
+  fi
+  echo "check-all: no programs registered in $manifest — nothing to verify."
+  exit 0
+fi
+
+tmp="$(mktemp)"
+printf '%s\n' "$list" > "$tmp"
+
+ran=0
+tab="$(printf '\t')"
+while IFS="$tab" read -r prog src fmt; do
+  [ -n "$prog" ] || continue
+  if [ ! -f "tests/$prog/cmd" ]; then
+    echo "check-all: skip '$prog' (no tests/$prog/cmd — not a migration candidate yet)"
+    continue
+  fi
+
+  echo "== $prog (source: $src) =="
+  # COBOL ソース形式は manifest の format で選ぶ（既定 free；fixed-format legacy は -fixed）。
+  fmt_flags=""
+  [ "$fmt" = fixed ] && fmt_flags="-fixed"
+  COBC_FLAGS="$fmt_flags" sh tools/golden/freeze "$prog" "$src"
+
+  if git ls-files --error-unmatch "tests/$prog/golden" >/dev/null 2>&1; then
+    if ! git diff --quiet -- "tests/$prog/golden/"; then
+      echo "::error::Frozen golden differs from the committed golden for '$prog' — COBOL behavior drifted."
+      git --no-pager diff -- "tests/$prog/golden/"
+      rm -f "$tmp"
+      exit 1
+    fi
+    echo "check-all: drift-guard OK ('$prog': committed golden == freshly frozen)"
+  else
+    echo "::warning::No committed golden for '$prog' yet; the frozen golden is uploaded as an artifact to commit."
+  fi
+
+  sh tools/golden/verify "$prog"
+  ran=1
+done < "$tmp"
+
+rm -f "$tmp"
+
+if [ "$ran" -eq 0 ]; then
+  echo "check-all: no migration candidates yet (no tests/<prog>/cmd) — gate passes vacuously."
+fi
+echo "check-all: equivalence gate complete."

@@ -1,0 +1,59 @@
+#!/usr/bin/env sh
+# freeze — build the legacy COBOL and capture its output as the golden master.
+#
+# Usage: tools/golden/freeze <prog> [path/to/source.cob]
+#
+# For every tests/<prog>/inputs/*.txt, run it through the COBOL binary and write
+# the output to tests/<prog>/golden/<case>.txt — the immutable baseline (ADR-0005).
+#
+# Requires GnuCOBOL (cobc). Per ADR-0013, run this in CI or a container,
+# NEVER on the Mac host.
+set -eu
+
+prog="${1:-}"
+if [ -z "$prog" ]; then
+  echo "usage: tools/golden/freeze <prog> [source.cob]" >&2
+  exit 2
+fi
+
+# This script lives in tools/golden/ — resolve and move to the repo root.
+root="$(CDPATH= cd "$(dirname "$0")/../.." && pwd)"
+cd "$root"
+
+src="${2:-samples/$prog/$prog.cob}"
+if [ ! -f "$src" ]; then
+  echo "freeze: source not found: $src" >&2
+  exit 1
+fi
+
+if ! command -v cobc >/dev/null 2>&1; then
+  echo "freeze: cobc (GnuCOBOL) not found. Run in CI/container (ADR-0013), not on the Mac host." >&2
+  exit 1
+fi
+
+inputs_dir="tests/$prog/inputs"
+golden_dir="tests/$prog/golden"
+if [ ! -d "$inputs_dir" ]; then
+  echo "freeze: no inputs dir: $inputs_dir" >&2
+  exit 1
+fi
+mkdir -p "$golden_dir"
+
+bin="$(mktemp -d)/$prog"
+echo "freeze: building $src -> $bin"
+# Force free-format parsing: GnuCOBOL defaults to fixed format and would otherwise
+# read the >>SOURCE FORMAT FREE directive as a column-7 indicator. Override with
+# COBC_FLAGS for fixed-format legacy sources (e.g. COBC_FLAGS=-fixed).
+cobc -x ${COBC_FLAGS:--free} -o "$bin" "$src"
+
+count=0
+for f in "$inputs_dir"/*.txt; do
+  [ -e "$f" ] || continue
+  case_name="$(basename "$f" .txt)"
+  out="$golden_dir/$case_name.txt"
+  echo "freeze: $f -> $out"
+  "$bin" < "$f" > "$out"
+  count=$((count + 1))
+done
+
+echo "freeze: froze $count case(s) for '$prog' into $golden_dir"

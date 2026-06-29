@@ -1,0 +1,3 @@
+# parser.c は gzip 同梱 (parser.c.gz) から extract.sh が初回に展開する。
+# 生成物 (約29MB) はリポジトリに含めない＝リポ軽量化 (ADR-0019・gzip 方式)。
+/src/parser.c

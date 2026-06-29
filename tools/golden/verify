@@ -1,0 +1,78 @@
+#!/usr/bin/env sh
+# verify — run the migration candidate and diff its output against the golden master.
+#
+# Usage: tools/golden/verify <prog>
+#
+# Reads the candidate invocation from tests/<prog>/cmd (first non-comment line).
+# For each tests/<prog>/inputs/<case>.txt, runs the candidate and compares the
+# NORMALIZED output to tests/<prog>/golden/<case>.txt. Any diff fails the gate
+# (ADR-0005). The golden is the authority — fix the candidate, never the golden.
+set -eu
+
+prog="${1:-}"
+if [ -z "$prog" ]; then
+  echo "usage: tools/golden/verify <prog>" >&2
+  exit 2
+fi
+
+root="$(CDPATH= cd "$(dirname "$0")/../.." && pwd)"
+cd "$root"
+
+cmd_file="tests/$prog/cmd"
+inputs_dir="tests/$prog/inputs"
+golden_dir="tests/$prog/golden"
+for p in "$cmd_file" "$inputs_dir" "$golden_dir"; do
+  [ -e "$p" ] || { echo "verify: missing $p" >&2; exit 1; }
+done
+
+# First non-comment, non-blank line of cmd = how to run the candidate.
+run_cmd="$(grep -v '^[[:space:]]*#' "$cmd_file" | grep -v '^[[:space:]]*$' | head -n 1)"
+if [ -z "$run_cmd" ]; then
+  echo "verify: no command found in $cmd_file" >&2
+  exit 1
+fi
+
+# Normalize non-semantic differences (ADR-0005): strip trailing whitespace
+# (covers CR and fixed-length padding at line ends), keep line content otherwise.
+normalize() {
+  sed 's/[[:space:]]*$//'
+}
+
+fail=0
+count=0
+for f in "$inputs_dir"/*.txt; do
+  [ -e "$f" ] || continue
+  case_name="$(basename "$f" .txt)"
+  golden="$golden_dir/$case_name.txt"
+  if [ ! -f "$golden" ]; then
+    echo "verify: no golden for case '$case_name' ($golden). Run freeze first." >&2
+    fail=1
+    continue
+  fi
+
+  cand="$(mktemp)"
+  # run_cmd is repo-controlled (tests/<prog>/cmd), not external input.
+  # Let the candidate's stderr through so CI logs show failures (e.g. Java stack traces).
+  if ! eval "$run_cmd" < "$f" > "$cand"; then
+    echo "verify: candidate command failed for case '$case_name'" >&2
+    fail=1
+  fi
+
+  gnorm="$(mktemp)"
+  cnorm="$(mktemp)"
+  normalize < "$golden" > "$gnorm"
+  normalize < "$cand" > "$cnorm"
+  if diff -u "$gnorm" "$cnorm"; then
+    echo "verify: PASS $case_name"
+  else
+    echo "verify: FAIL $case_name (candidate != golden)"
+    fail=1
+  fi
+  count=$((count + 1))
+done
+
+if [ "$fail" -ne 0 ]; then
+  echo "verify: equivalence FAILED for '$prog'" >&2
+  exit 1
+fi
+echo "verify: all $count case(s) PASS for '$prog' (candidate == golden)"
