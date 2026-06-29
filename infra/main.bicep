@@ -84,7 +84,55 @@ resource rabbit 'Microsoft.App/containerApps@2024-03-01' = {
   }
 }
 
+// 接続情報は Key Vault に集約（secretless: ACA は managed identity で参照）。
+resource kv 'Microsoft.KeyVault/vaults@2023-07-01' = {
+  name: '${namePrefix}-kv${uniqueString(resourceGroup().id)}'
+  location: location
+  properties: {
+    sku: { family: 'A', name: 'standard' }
+    tenantId: subscription().tenantId
+    enableRbacAuthorization: true
+  }
+}
+
+// ISAM .idx を ACA env へ Azure Files マウント。
+resource acaStorage 'Microsoft.App/managedEnvironments/storages@2024-03-01' = {
+  parent: acaEnv
+  name: 'isam'
+  properties: {
+    azureFile: {
+      accountName: sa.name
+      accountKey: sa.listKeys().keys[0].value
+      shareName: 'isam-data'
+      accessMode: 'ReadWrite'
+    }
+  }
+}
+
+// 日次バッチ: 23:00 JST(=14:00 UTC) 19→13→15→16→17→20。
+resource jobDaily 'Microsoft.App/jobs@2024-03-01' = {
+  name: '${namePrefix}-batch-daily'
+  location: location
+  properties: {
+    environmentId: acaEnv.id
+    configuration: { triggerType: 'Schedule', scheduleTriggerConfig: { cronExpression: '0 14 * * *', parallelism: 1 }, replicaTimeout: 14400 }
+    template: { containers: [ { name: 'daily', image: '${acr.properties.loginServer}/practice-bank:latest', command: ['bash','subsystems/22-operations/bin/run-batch-daily-wrapper.sh','daily'], resources: { cpu: 1, memory: '2Gi' } } ] }
+  }
+}
+
+// 月次バッチ: 1日02:00 JST(=前日17:00 UTC) 14→21。
+resource jobMonthly 'Microsoft.App/jobs@2024-03-01' = {
+  name: '${namePrefix}-batch-monthly'
+  location: location
+  properties: {
+    environmentId: acaEnv.id
+    configuration: { triggerType: 'Schedule', scheduleTriggerConfig: { cronExpression: '0 17 L * *', parallelism: 1 }, replicaTimeout: 14400 }
+    template: { containers: [ { name: 'monthly', image: '${acr.properties.loginServer}/practice-bank:latest', command: ['bash','subsystems/22-operations/bin/run-batch-daily-wrapper.sh','monthly'], resources: { cpu: 1, memory: '2Gi' } } ] }
+  }
+}
+
 output acrLoginServer string = acr.properties.loginServer
 output acaEnvId string = acaEnv.id
 output pgFqdn string = pg.properties.fullyQualifiedDomainName
 output fileShareName string = 'isam-data'
+output keyVaultName string = kv.name
