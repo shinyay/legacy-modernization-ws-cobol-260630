@@ -1,6 +1,6 @@
 # ADR-0029: MVP は Azure MCP で構築先行、IaC(Bicep/azd) は後追い
 
-- **Status**: Proposed
+- **Status**: Accepted
 - **Date**: 2026-06-29
 - **Deciders**: @hagishun
 
