@@ -1,0 +1,593 @@
+# 移行対象 COBOL プログラムの台帳（triage.md がここから「次の1本」を選ぶ）
+# ライブな進行状況は GitHub Issues / Projects、静的な inventory はこの manifest が担う。
+#
+# status: todo | in-progress | rewritten | fallback | done
+# kind:   batch | interactive
+# format: free | fixed（COBOL ソース形式。既定 free。固定形式 legacy〈例: legacy/cobol-examples/〉は fixed）
+# migratable: yes | review | later
+# calls/copybooks/files/hotspots: 依存解析結果（tools/deps/analyze.sh）を反映
+# sql: true | false（EXEC SQL を含むか）
+#
+# triage 方針（v0）:
+# - 現在のサンプル群は CALL/COPY 依存が薄く、主目的は COBOL 構文・意味論の検証。
+# - そのため v0 は dependency-driven より hotspot-driven を主軸にする。
+# - hotspots は「次に検証する COBOL 意味論」の選定に使う。
+# - migratable は移行優先度（yes/review/later）として別軸で扱う。
+#
+# triage 方針（v1 以降）:
+# - 実案件のように CALL/COPY/copybook/job flow 依存が豊富な資産では、
+#   dependency-driven triage（leaf 優先の順序決定）を追加で有効化する。
+#
+# ※当日、支給 COBOL を legacy/ に取り込んだら各プログラムをここに列挙する。
+#   以下はテンプレート（実体ではない）。
+
+programs:
+  - name: INTEREST
+    path: samples/interest/interest.cob
+    entry: INTEREST
+    kind: batch
+    status: rewritten
+    calls: []
+    copybooks: []
+    sql: false
+    files: []
+    hotspots: []
+    migratable: yes
+    spec: specs/interest.md
+    tests: tests/interest/
+    notes: "単利計算。丸め(HALF_UP)と編集表示(Z,ZZZ,ZZ9.99)が確認ポイント。Java rewrite 候補: app/src/main/java/interest/Interest.java"
+
+  # leaf/batch の初期候補（tools/deps/analyze.sh --all の結果を反映）
+  - name: TRIM-FUNCTION-TEST
+    path: legacy/cobol-examples/trim/trim.cbl
+    entry: TRIM-FUNCTION-TEST
+    kind: batch
+    format: fixed
+    status: rewritten
+    calls: []
+    copybooks: []
+    sql: false
+    files: []
+    hotspots: [trim]
+    migratable: yes
+    spec: specs/trim-function-test.md
+    tests: tests/trim-function-test/
+    notes: "leaf/batch。依存なしのため縦切り候補。"
+
+  - name: UNSTRING-EXAMPLE
+    path: legacy/cobol-examples/unstring/unstring.cbl
+    entry: UNSTRING-EXAMPLE
+    kind: batch
+    format: fixed
+    status: todo
+    calls: []
+    copybooks: []
+    sql: false
+    files: []
+    hotspots: [unstring]
+    migratable: yes
+    spec: specs/unstring-example.md
+    tests: tests/unstring-example/
+    notes: "leaf/batch。依存なしのため縦切り候補。"
+
+  - name: SEARCH-EXAMPLE
+    path: legacy/cobol-examples/search/search.cbl
+    entry: SEARCH-EXAMPLE
+    kind: batch
+    format: fixed
+    status: todo
+    calls: []
+    copybooks: []
+    sql: false
+    files: []
+    hotspots: [search]
+    migratable: yes
+    spec: specs/search-example.md
+    tests: tests/search-example/
+    notes: "leaf/batch。依存なしのため縦切り候補。"
+
+  - name: REDEFINES-TEST
+    path: legacy/cobol-examples/redifines/redefines.cbl
+    entry: REDEFINES-TEST
+    kind: batch
+    format: fixed
+    status: todo
+    calls: []
+    copybooks: []
+    sql: false
+    files: []
+    hotspots: [redefines]
+    migratable: yes
+    spec: specs/redefines-test.md
+    tests: tests/redefines-test/
+    notes: "leaf/batch。REDEFINES を含む可能性があるため spec 作成時に human review で確認。"
+
+  - name: COMP-CONVERSION-TEST
+    path: legacy/cobol-examples/comp_test/comp_test.cbl
+    entry: COMP-CONVERSION-TEST
+    kind: batch
+    format: fixed
+    status: todo
+    calls: []
+    copybooks: []
+    sql: false
+    files: []
+    hotspots: [comp]
+    migratable: yes
+    spec: specs/comp-conversion-test.md
+    tests: tests/comp-conversion-test/
+    notes: "leaf/batch。数値表現（COMP 系）の取り扱いを重点確認。"
+
+  - name: NUMVAL-TEST
+    path: legacy/cobol-examples/numval_test/numval_test.cbl
+    entry: NUMVAL-TEST
+    kind: batch
+    format: fixed
+    status: rewritten
+    calls: []
+    copybooks: []
+    sql: false
+    files: []
+    hotspots: [numval]
+    migratable: yes
+    spec: specs/numval-test.md
+    tests: tests/numval-test/
+    notes: "leaf/batch。NUMVAL 系の仕様抽出と等価検証に向く。"
+
+  # 高リスク/依存あり候補（色分け可視化用）
+  - name: JSON-GENERATE-EXAMPLE
+    path: legacy/cobol-examples/json_generate/json_generate.cbl
+    entry: JSON-GENERATE-EXAMPLE
+    kind: batch
+    status: todo
+    calls: []
+    copybooks: []
+    sql: false
+    files: []
+    hotspots: [json-generate]
+    migratable: review
+    spec: specs/json-generate-example.md
+    tests: tests/json-generate-example/
+    notes: "JSON GENERATE を含むため review 優先。"
+
+  - name: XML-GENERATE-EXAMPLE
+    path: legacy/cobol-examples/xml_generate/xml_generate.cbl
+    entry: XML-GENERATE-EXAMPLE
+    kind: batch
+    status: todo
+    calls: []
+    copybooks: []
+    sql: false
+    files: []
+    hotspots: [xml-generate]
+    migratable: review
+    spec: specs/xml-generate-example.md
+    tests: tests/xml-generate-example/
+    notes: "XML GENERATE を含むため review 優先。"
+
+  - name: MERGE-SORT-EXAMPLE
+    path: legacy/cobol-examples/merge_sort/merge_sort_test.cbl
+    entry: MERGE-SORT-EXAMPLE
+    kind: batch
+    status: todo
+    calls: []
+    copybooks: []
+    sql: false
+    files: [TEST-FILE-1.TXT, TEST-FILE-2.TXT, WORK-TEMP.TXT, MERGE-OUTPUT.TXT, SORTED-CONTRACT-ID.TXT]
+    hotspots: [sort-merge]
+    migratable: review
+    spec: specs/merge-sort-example.md
+    tests: tests/merge-sort-example/
+    notes: "SORT/MERGE とファイルI/Oを含むため review 優先。"
+
+  - name: REPORT-TEST
+    path: legacy/cobol-examples/report_writer/report_test.cbl
+    entry: REPORT-TEST
+    kind: batch
+    status: todo
+    calls: []
+    copybooks: []
+    sql: false
+    files: [INPUT.TXT, REPORT.TXT]
+    hotspots: [report-writer]
+    migratable: review
+    spec: specs/report-test.md
+    tests: tests/report-test/
+    notes: "REPORT SECTION を含むため review 優先。"
+
+  - name: SQL-EXAMPLE
+    path: legacy/cobol-examples/sql/sql_example.cbl
+    entry: SQL-EXAMPLE
+    kind: batch
+    status: todo
+    calls: [OCSQL, OCSQLDIS, OCSQLPRE, OCSQLOCU, OCSQLFTC, OCSQLCCU]
+    copybooks: []
+    sql: true
+    files: []
+    hotspots: [exec-sql]
+    migratable: review
+    spec: specs/sql-example.md
+    tests: tests/sql-example/
+    notes: "EXEC SQL と外部 SQL ランタイム呼び出しを含むため review 優先。"
+
+  - name: SUB-APP
+    path: legacy/cobol-examples/sub_program/sub.cbl
+    entry: SUB-APP
+    kind: batch
+    status: todo
+    calls: []
+    copybooks: []
+    sql: false
+    files: []
+    hotspots: []
+    migratable: yes
+    spec: specs/sub-app.md
+    tests: tests/sub-app/
+    notes: "MAIN-APP から呼ばれる下位プログラム。先に移行しやすい。"
+
+  - name: MAIN-APP
+    path: legacy/cobol-examples/sub_program/main_app.cbl
+    entry: MAIN-APP
+    kind: batch
+    status: todo
+    calls: [SUB-APP, OF]
+    copybooks: []
+    sql: false
+    files: []
+    hotspots: []
+    migratable: later
+    spec: specs/main-app.md
+    tests: tests/main-app/
+    notes: "SUB-APP 依存があるため later。外部/不明 call(OF) あり。"
+
+  # - name: SAMPLE01
+  #   path: legacy/<project>/src/SAMPLE01.cob
+  #   entry: SAMPLE01            # PROGRAM-ID / 実行エントリ
+  #   kind: batch
+  #   status: todo
+  #   calls: [SUB01, SUB02]
+  #   copybooks: [COMMON01, INPUTREC]
+  #   sql: false
+  #   files: [INPUT.DAT, OUTPUT.DAT]
+  #   hotspots: [redefines, occurs, file-io]
+  #   migratable: review
+  #   spec: specs/SAMPLE01.md
+  #   tests: tests/SAMPLE01/
+  #   notes: "COMP-3 と固定長ファイル I/O を含む"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# subsystems: 実案件（legacy/legacy-modernization-ws-cobol-260630）のサブシステム台帳。
+# programs: とは別軸（粒度=サブシステム）。Java 直訳ではなくドメイン分析＋Azure コンテナ移行が主目的。
+# system-analyzer が specs/subsystems/<id>-<name>.md と相互参照して更新する。CI ゲートは programs: 基準のため非破壊。
+# status: confirmed | inferred | unknown   modernization_target: container_apps_job | container_apps_service | init_job
+# ─────────────────────────────────────────────────────────────────────────────
+subsystems:
+  - id: "01"
+    name: "calendar"
+    type: "master"
+    entrypoint: "cal-load,cal-lookup,cal-next-bd,cal-prev-bd"
+    inputs: [calendar.idx]
+    outputs: [day-type, next-bd, prev-bd]
+    db_tables: []
+    mq_topics: []
+    isam_files: [calendar.idx]
+    dependencies: []
+    tests: [subsystems/01-calendar/tests]
+    modernization_target: "init_job"
+    spec: specs/subsystems/01-calendar.md
+    status: "confirmed"
+
+  - id: "02"
+    name: "branch"
+    type: "master"
+    entrypoint: "br-load,br-lookup,br-list-all,br-list-by-region"
+    inputs: [branch.idx]
+    outputs: [branch-info]
+    db_tables: []
+    mq_topics: []
+    isam_files: [branch.idx]
+    dependencies: []
+    tests: [subsystems/02-branch/tests]
+    modernization_target: "init_job"
+    spec: specs/subsystems/02-branch.md
+    status: "confirmed"
+
+  - id: "03"
+    name: "customer"
+    type: "master"
+    entrypoint: "cust-load,cust-lookup,cust-list-all,cust-search-by-kana,cust-search-by-phone,cust-status-change"
+    inputs: [customer.idx]
+    outputs: [customer-info]
+    db_tables: []
+    mq_topics: []
+    isam_files: [customer.idx]
+    dependencies: []
+    tests: [subsystems/03-customer/tests]
+    modernization_target: "init_job"
+    spec: specs/subsystems/03-customer.md
+    status: "confirmed"
+
+  - id: "04"
+    name: "customersearch"
+    type: "online"
+    entrypoint: "csrch-and,csrch-by-address,csrch-list-paged"
+    inputs: []
+    outputs: [search-result]
+    db_tables: [customers]
+    mq_topics: []
+    isam_files: [customer.idx]
+    dependencies: ["03"]
+    tests: [subsystems/04-customersearch/tests]
+    modernization_target: "container_apps_service"
+    spec: specs/subsystems/04-customersearch.md
+    status: "inferred"
+
+  - id: "05"
+    name: "product"
+    type: "master"
+    entrypoint: "prod-load,prod-lookup"
+    inputs: [product.idx]
+    outputs: [product-info]
+    db_tables: []
+    mq_topics: []
+    isam_files: [product.idx]
+    dependencies: []
+    tests: [subsystems/05-product/tests]
+    modernization_target: "init_job"
+    spec: specs/subsystems/05-product.md
+    status: "confirmed"
+
+  - id: "06"
+    name: "interestrate"
+    type: "master"
+    entrypoint: "irate-load,irate-lookup"
+    inputs: [interest_rates]
+    outputs: [rate-info]
+    db_tables: [interest_rates]
+    mq_topics: []
+    isam_files: []
+    dependencies: ["05"]
+    tests: [subsystems/06-interestrate/tests]
+    modernization_target: "init_job"
+    spec: specs/subsystems/06-interestrate.md
+    status: "inferred"
+
+  - id: "07"
+    name: "feeschedule"
+    type: "master"
+    entrypoint: "fee-load,fee-lookup-by-tier"
+    inputs: [fee_schedules]
+    outputs: [fee-info]
+    db_tables: [fee_schedules]
+    mq_topics: []
+    isam_files: []
+    dependencies: []
+    tests: [subsystems/07-feeschedule/tests]
+    modernization_target: "init_job"
+    spec: specs/subsystems/07-feeschedule.md
+    status: "inferred"
+
+  - id: "08"
+    name: "account"
+    type: "master"
+    entrypoint: "acct-load,acct-lookup,acct-exists,acct-lookup-by-customer,acct-update-dormancy-date"
+    inputs: [accounts.idx]
+    outputs: [account-info]
+    db_tables: [accounts]
+    mq_topics: []
+    isam_files: [account.idx]
+    dependencies: []
+    tests: [subsystems/08-account/tests]
+    modernization_target: "init_job"
+    spec: specs/subsystems/08-account.md
+    status: "confirmed"
+
+  - id: "09"
+    name: "accountlifecycle"
+    type: "batch"
+    entrypoint: "alc-open,alc-dormancy-scan,alc-reactivation-scan,alc-change-state"
+    inputs: [accounts.idx]
+    outputs: [account-state]
+    db_tables: [accounts]
+    mq_topics: []
+    isam_files: [account.idx]
+    dependencies: ["08", "01"]
+    tests: [subsystems/09-accountlifecycle/tests]
+    modernization_target: "container_apps_job"
+    spec: specs/subsystems/09-accountlifecycle.md
+    status: "inferred"
+
+  - id: "10"
+    name: "txnvalidate"
+    type: "batch"
+    entrypoint: "txval-validate-batch,txval-checkpoint-recover,txval-report-summary"
+    inputs: [txn-decoded.dat]
+    outputs: [txn-ready.dat, txn-reject.dat]
+    db_tables: []
+    mq_topics: []
+    isam_files: []
+    dependencies: ["19", "08"]
+    tests: [subsystems/10-txnvalidate/tests]
+    modernization_target: "container_apps_job"
+    spec: specs/subsystems/10-txnvalidate.md
+    status: "inferred"
+
+  - id: "11"
+    name: "txnsortmerge"
+    type: "batch"
+    entrypoint: "txsm-sort-batch,txsm-merge-batch,txsm-report-summary"
+    inputs: [txn-ready.dat]
+    outputs: [txn-sorted.dat]
+    db_tables: []
+    mq_topics: []
+    isam_files: []
+    dependencies: ["10"]
+    tests: [subsystems/11-txnsortmerge/tests]
+    modernization_target: "container_apps_job"
+    spec: specs/subsystems/11-txnsortmerge.md
+    status: "inferred"
+
+  - id: "12"
+    name: "txnpost"
+    type: "batch"
+    entrypoint: "txpost-run-batch,txpost-reverse,txpost-report-summary"
+    inputs: [txn-sorted.dat]
+    outputs: [postings, balances, txn-error.dat]
+    db_tables: [accounts, postings, balances, audit_outbox]
+    mq_topics: []
+    isam_files: [account.idx]
+    dependencies: ["01", "08", "shared/aud-write"]
+    tests: [subsystems/12-txnpost/tests]
+    modernization_target: "container_apps_job"
+    spec: specs/subsystems/12-txnpost.md
+    status: "confirmed"
+
+  - id: "13"
+    name: "interestaccrual"
+    type: "batch"
+    entrypoint: "iacr-run-daily,iacr-report-summary"
+    inputs: [accounts, interest_rates]
+    outputs: [interest_accruals]
+    db_tables: [accounts, interest_accruals]
+    mq_topics: []
+    isam_files: [calendar.idx, product.idx]
+    dependencies: ["01", "05", "06", "08", "shared/aud-write"]
+    tests: [subsystems/13-interestaccrual/tests]
+    modernization_target: "container_apps_job"
+    spec: specs/subsystems/13-interestaccrual.md
+    status: "confirmed"
+
+  - id: "14"
+    name: "interestpost"
+    type: "batch"
+    entrypoint: "ipst-run-monthend,ipst-report-summary"
+    inputs: [interest_accruals]
+    outputs: [postings]
+    db_tables: [accounts, interest_accruals]
+    mq_topics: []
+    isam_files: []
+    dependencies: ["13"]
+    tests: [subsystems/14-interestpost/tests]
+    modernization_target: "container_apps_job"
+    spec: specs/subsystems/14-interestpost.md
+    status: "confirmed"
+
+  - id: "15"
+    name: "autodebit"
+    type: "batch"
+    entrypoint: "ad-run-daily,ad-report-summary"
+    inputs: [autodebit_schedules]
+    outputs: [postings]
+    db_tables: [autodebit_schedules, accounts]
+    mq_topics: []
+    isam_files: [account.idx]
+    dependencies: ["08"]
+    tests: [subsystems/15-autodebit/tests]
+    modernization_target: "container_apps_job"
+    spec: specs/subsystems/15-autodebit.md
+    status: "inferred"
+
+  - id: "16"
+    name: "fee"
+    type: "batch"
+    entrypoint: "fee-charge,fee-report-summary"
+    inputs: [fee_schedules]
+    outputs: [postings]
+    db_tables: [accounts, fee_schedules]
+    mq_topics: []
+    isam_files: []
+    dependencies: ["07", "08"]
+    tests: [subsystems/16-fee/tests]
+    modernization_target: "container_apps_job"
+    spec: specs/subsystems/16-fee.md
+    status: "inferred"
+
+  - id: "17"
+    name: "statement"
+    type: "batch"
+    entrypoint: "stmt-generate-batch"
+    inputs: [accounts, postings]
+    outputs: [statement-file]
+    db_tables: [accounts, postings]
+    mq_topics: []
+    isam_files: []
+    dependencies: ["12"]
+    tests: [subsystems/17-statement/tests]
+    modernization_target: "container_apps_job"
+    spec: specs/subsystems/17-statement.md
+    status: "inferred"
+
+  - id: "18"
+    name: "inquiry"
+    type: "online"
+    entrypoint: "inq-main"
+    inputs: [account-key]
+    outputs: [account-info]
+    db_tables: [accounts, balances, transactions]
+    mq_topics: []
+    isam_files: []
+    dependencies: ["08"]
+    tests: [subsystems/18-inquiry/tests]
+    modernization_target: "container_apps_service"
+    spec: specs/subsystems/18-inquiry.md
+    status: "inferred"
+
+  - id: "19"
+    name: "integrationin"
+    type: "batch"
+    entrypoint: "inti-decode-batch"
+    inputs: [external-ebcdic-file]
+    outputs: [txn-decoded.dat, reject-file]
+    db_tables: []
+    mq_topics: []
+    isam_files: []
+    dependencies: ["shared/ebc-to-ascii"]
+    tests: [subsystems/19-integrationin/tests]
+    modernization_target: "container_apps_job"
+    spec: specs/subsystems/19-integrationin.md
+    status: "confirmed"
+
+  - id: "20"
+    name: "integrationout"
+    type: "batch"
+    entrypoint: "into-drain-queue,into-publish-event"
+    inputs: [audit_outbox]
+    outputs: [mq-events]
+    db_tables: [audit_outbox]
+    mq_topics: [pb.events]
+    isam_files: []
+    dependencies: ["shared/mq-publish", "21"]
+    tests: [tests/e2e]
+    modernization_target: "container_apps_job"
+    spec: specs/subsystems/20-integrationout.md
+    status: "confirmed"
+
+  - id: "21"
+    name: "audit"
+    type: "batch"
+    entrypoint: "audit-partition-rollover,audit-query-forensic,audit-summary-report"
+    inputs: [audit_outbox]
+    outputs: [audit_log]
+    db_tables: [audit_log, audit_outbox]
+    mq_topics: []
+    isam_files: []
+    dependencies: ["shared/aud-write"]
+    tests: [subsystems/21-audit/tests]
+    modernization_target: "container_apps_job"
+    spec: specs/subsystems/21-audit.md
+    status: "confirmed"
+
+  - id: "22"
+    name: "operations"
+    type: "orchestrator"
+    entrypoint: "ops-batch-daily,ops-batch-monthly,ops-drain-queues,ops-partition-rollover,ops-finalize"
+    inputs: [batch_run]
+    outputs: [batch_run, recon-defer.dat]
+    db_tables: [batch_run]
+    mq_topics: []
+    isam_files: []
+    dependencies: ["19", "13", "15", "16", "17", "20", "14", "21"]
+    tests: [tests/e2e]
+    modernization_target: "container_apps_job"
+    spec: specs/subsystems/22-operations.md
+    status: "confirmed"
