@@ -56,3 +56,4 @@ Michael Nygard 形式（軽量）。1判断 = 1ファイル。
 | [0026](0026-container-granularity-subsystem-job.md) | コンテナ粒度 = サブシステム/ジョブ単位 | Accepted | 2026-06-29 |
 | [0027](0027-practice-bank-rehost-no-java-rewrite.md) | Practice Bank は Java rewrite せず rehost コンテナ移行 | Accepted | 2026-06-29 |
 | [0028](0028-subsystem-spec-and-manifest-block.md) | サブシステム単位 spec ＋ manifest subsystems ブロック導入 | Accepted | 2026-06-29 |
+| [0029](0029-mvp-mcp-provision-first-iac-later.md) | MVP は Azure MCP で構築先行、IaC は後追い | Proposed | 2026-06-29 |
