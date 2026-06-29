@@ -1,6 +1,6 @@
 # ADR-0027: Practice Bank は Java rewrite せず rehost コンテナで Azure 移行する
 
-- **Status**: Proposed
+- **Status**: Accepted
 - **Date**: 2026-06-29
 - **Deciders**: @hagishun
 
