@@ -1,0 +1,14 @@
+# azure.yaml — azd 定義（ADR-0007）。provisioning は Bicep、確認は Azure MCP。
+name: practice-bank
+metadata:
+  template: practice-bank-aca@0.1
+infra:
+  provider: bicep
+  path: infra
+services:
+  txnpost-job:
+    project: ../legacy/legacy-modernization-ws-cobol-260630
+    host: containerapp
+    docker:
+      path: ../infra/Dockerfile
+      context: ../legacy/legacy-modernization-ws-cobol-260630
