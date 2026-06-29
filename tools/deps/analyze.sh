@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # deps/analyze.sh — COBOL 依存の静的スキャン
 #
+# 対象: *.cob / *.cbl / *.cpy / *.sqb / *.pco（OCESQL 組込 SQL 含む）
+#
 # 抽出対象:
 # - PROGRAM-ID
 # - CALL
@@ -66,7 +68,7 @@ RAW="$TMP/raw.tsv"
 : > "$RAW"
 
 if [ "$SCAN_ALL" -eq 1 ]; then
-  find . \( -name '*.cob' -o -name '*.cbl' -o -name '*.cpy' \) -type f | sed 's#^\./##' | sort -u > "$FILES"
+  find . \( -name '*.cob' -o -name '*.cbl' -o -name '*.cpy' -o -name '*.sqb' -o -name '*.pco' \) -type f | sed 's#^\./##' | sort -u > "$FILES"
 else
   if [ ! -f "$MANIFEST" ]; then
     echo "error: manifest not found: $MANIFEST" >&2
