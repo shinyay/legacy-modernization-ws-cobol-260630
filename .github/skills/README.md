@@ -12,8 +12,6 @@
 | `cobol-gnucobol-dialect/` | PIC / COMP-3 / 固定長 / ファイル・標準 I/O / `cobc -x` ビルド / golden 生成（**参照知識**寄り） | COBOL を読む / ビルドするとき | 実在 |
 | `cobol-to-spec/` | **Code→Doc**: 業務ルール・入出力・エッジケース・データ定義を構造化 Doc に抽出 | Analyze → Code-to-Doc | 実在 |
 | `cobol-discovery-hotspot/` | 依存/ホットスポットを抽出し `manifest.yaml` を更新、色分けグラフを生成 | discovery / triage 前 | 実在 |
-| `spec-to-java/` | **Doc→Code**: spec から idiomatic Java 生成（数値 = BigDecimal, 丸め/桁/固定長） | Plan → Rewrite | 実在 |
-| `cobol-java-wrapper/` | **fallback**: `ProcessBuilder` で COBOL バイナリ起動（stdin/一時ファイル↔stdout/ファイル） | Rewrite 不可時の Fallback | 実在 |
 | `golden-master-testing/` | COBOL 実行を golden に固定し、candidate と一致確認 | Golden Master → Verify | 実在 |
 | `long-running-ops/` | 長時間処理（gh-aw / CI / Actions）の停止・確認・再試行ポリシー＋安価モデル worker プロンプト | 長時間コマンド実行時 / worker 運用 | 実在 |
 | `task-decomposition/` | 1 program を done/stop 条件付き bounded task 列に分解（model tier 割当・planner 用） | 4役経路の作業分割（planner） | 実在 |
