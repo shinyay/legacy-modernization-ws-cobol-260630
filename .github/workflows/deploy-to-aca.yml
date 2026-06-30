@@ -68,8 +68,7 @@ jobs:
               --cpu 1 --memory 2Gi \
               --registry-server "$ACR_SERVER" \
               --registry-username "$ACR_USER" \
-              --registry-password "$ACR_PASS" \
-              --command "/bin/bash" "-lc" "cobc --version && echo 'practice-bank deployed: specify a batch command to run'"
+              --registry-password "$ACR_PASS"
           fi
 
       - name: Summary
