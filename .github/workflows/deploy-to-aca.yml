@@ -1,0 +1,80 @@
+name: deploy-to-aca
+
+# CI/CD: COBOL rehost コンテナを ACR でビルドし、Azure Container Apps Job としてデプロイ（ADR-0029）。
+# 認証は Entra OIDC（secretless）。provisioning は az、image build は az acr build（クラウドビルド・runner に docker 不要）。
+
+on:
+  workflow_dispatch:
+    inputs:
+      subsystem:
+        description: "デプロイ対象サブシステム (例: 12-txnpost)"
+        default: "12-txnpost"
+  push:
+    branches: [main]
+    paths:
+      - "subsystems/**"
+      - "shared/**"
+      - "infra/Dockerfile"
+      - ".github/workflows/deploy-to-aca.yml"
+
+permissions:
+  id-token: write   # OIDC
+  contents: read
+
+env:
+  RESOURCE_GROUP: rg-practicebank
+  ACA_ENV: cae-practicebank
+  LOCATION: japaneast
+  IMAGE_REPO: practice-bank
+  JOB_NAME: pb-batch
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Azure login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Build image in ACR (cloud build)
+        run: |
+          az acr build \
+            --registry "${{ vars.ACR_NAME }}" \
+            --image "${{ env.IMAGE_REPO }}:${{ github.sha }}" \
+            --image "${{ env.IMAGE_REPO }}:latest" \
+            --file infra/Dockerfile .
+
+      - name: Deploy to Container Apps Job (create or update)
+        run: |
+          set -e
+          ACR_SERVER="${{ vars.ACR_NAME }}.azurecr.io"
+          ACR_USER=$(az acr credential show -n "${{ vars.ACR_NAME }}" --query username -o tsv)
+          ACR_PASS=$(az acr credential show -n "${{ vars.ACR_NAME }}" --query "passwords[0].value" -o tsv)
+          IMAGE="$ACR_SERVER/${{ env.IMAGE_REPO }}:${{ github.sha }}"
+          if az containerapp job show -g "$RESOURCE_GROUP" -n "$JOB_NAME" >/dev/null 2>&1; then
+            az containerapp job update -g "$RESOURCE_GROUP" -n "$JOB_NAME" --image "$IMAGE"
+          else
+            az containerapp job create \
+              -g "$RESOURCE_GROUP" -n "$JOB_NAME" \
+              --environment "$ACA_ENV" \
+              --trigger-type Manual \
+              --replica-timeout 1800 --replica-retry-limit 1 \
+              --image "$IMAGE" \
+              --cpu 1 --memory 2Gi \
+              --registry-server "$ACR_SERVER" \
+              --registry-username "$ACR_USER" \
+              --registry-password "$ACR_PASS" \
+              --command "/bin/bash" "-lc" "cobc --version && echo 'practice-bank deployed: specify a batch command to run'"
+          fi
+
+      - name: Summary
+        run: |
+          echo "### Deployed ✅" >> $GITHUB_STEP_SUMMARY
+          echo "- Image: ${{ env.IMAGE_REPO }}:${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Job: $JOB_NAME (ACA env $ACA_ENV)" >> $GITHUB_STEP_SUMMARY
+          echo "- 実行: az containerapp job start -g $RESOURCE_GROUP -n $JOB_NAME" >> $GITHUB_STEP_SUMMARY
