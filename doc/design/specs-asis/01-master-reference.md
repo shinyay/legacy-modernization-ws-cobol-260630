@@ -69,11 +69,11 @@ API契約: [copy/api/br-api.cpy](../../../subsystems/02-branch/copy/api/br-api.c
 
 ### レコード定義（[copy/private/fd-branch.cpy](../../../subsystems/02-branch/copy/private/fd-branch.cpy)）
 
-`BR-REC-CODE`(3, 主キー) / `BR-REC-NAME-KANJI`(40) / `BR-REC-NAME-KANA`(40) / `BR-REC-REGION`(20, 副キー) / `BR-REC-OPENED-DATE`(9(8)) / `BR-REC-STATUS`(1)
+`BR-REC-CODE`(3, 主キー) / `BR-REC-NAME-KANJI`(40) / `BR-REC-NAME-KANA`(40) / `BR-REC-REGION`(20, 副キー) / `BR-REC-OPENED-DATE`(9(8)) / `BR-REC-STATUS`(1) / `BR-REC-FILLER`(20, 予約・未使用) ＝ レコード長132バイト固定
 
 ### 戻り値
 
-`00`/`04`/`08`/`10`(EOF)/`16`
+`00`/`04`/`10`(EOF)/`16`（注: `08`=`BR-STATUS-INVALID` は API に定義されているが、いずれのプログラムも返さない）
 
 ---
 
@@ -89,13 +89,13 @@ API契約: [copy/api/cust-api.cpy](../../../subsystems/03-customer/copy/api/cust
 | `CUST-LOOKUP` | [src/cust-lookup.cob](../../../subsystems/03-customer/src/cust-lookup.cob) | 顧客IDで参照 |
 | `CUST-LIST-ALL` | [src/cust-list-all.cob](../../../subsystems/03-customer/src/cust-list-all.cob) | 全件順次 |
 | `CUST-SEARCH-BY-KANA` | [src/cust-search-by-kana.cob](../../../subsystems/03-customer/src/cust-search-by-kana.cob) | カナ前方一致（副キー `CR-KANA`） |
-| `CUST-SEARCH-BY-PHONE` | [src/cust-search-by-phone.cob](../../../subsystems/03-customer/src/cust-search-by-phone.cob) | 電話前方一致（副キー `CR-PHONE`） |
+| `CUST-SEARCH-BY-PHONE` | [src/cust-search-by-phone.cob](../../../subsystems/03-customer/src/cust-search-by-phone.cob) | 電話完全一致（副キー `CR-PHONE` を `START KEY =` で照会。前方一致ではない点に注意） |
 | `CUST-STATUS-CHANGE` | [src/cust-status-change.cob](../../../subsystems/03-customer/src/cust-status-change.cob) | 状態変更＋監査記録（action=`CUST_STATUS_CHANGED`） |
 
 ### 入出力
 
 - 入力 `CUST-INPUT`: `CUST-IN-ID PIC 9(10)`、`CUST-IN-KANA PIC X(50)`、`CUST-IN-PHONE PIC X(15)`、`CUST-IN-OP PIC X(1)`（`L`/`K`/`P`/`A`/` `=継続）
-- 出力 `CUST-OUTPUT`: `CUST-OUT-STATUS`、`CUST-OUT-ID`、`CUST-OUT-KANA`、`CUST-OUT-KANJI PIC X(60)`、`CUST-OUT-PHONE`、`CUST-OUT-ADDRESS PIC X(200)`、`CUST-OUT-OPENED PIC 9(8)`、`CUST-OUT-STATUS-CODE`
+- 出力 `CUST-OUTPUT`: `CUST-OUT-STATUS`、`CUST-OUT-ID`、`CUST-OUT-KANA`、`CUST-OUT-KANJI PIC X(60)`、`CUST-OUT-PHONE`、`CUST-OUT-ADDRESS PIC X(200)`、`CUST-OUT-OPENED PIC 9(8)`（`CUST-LOOKUP` のみ設定。一覧/検索系では未設定）、`CUST-OUT-STATUS-CODE`
 
 ### レコード定義（[copy/private/fd-customer.cpy](../../../subsystems/03-customer/copy/private/fd-customer.cpy)）
 
@@ -203,7 +203,7 @@ API契約: [copy/api/fs-api.cpy](../../../subsystems/07-feeschedule/copy/api/fs-
 
 ### レコード定義（[copy/private/fd-fs.cpy](../../../subsystems/07-feeschedule/copy/private/fd-fs.cpy)）
 
-複合キー `FS-REC-KEY`（`FS-REC-CATEGORY`(9(2)) + `FS-REC-TIER`(9(2)) + `FS-REC-EFF-FROM`(9(8))）、`FS-REC-AMOUNT`(S9(9) COMP-3)
+`RECORD CONTAINS 41 CHARACTERS`。複合キー `FS-REC-KEY`（`FS-REC-CATEGORY`(9(2)) + `FS-REC-TIER`(9(2)) + `FS-REC-EFF-FROM`(9(8))）、`FS-REC-TIER-MIN`(S9(15) COMP-3)、`FS-REC-TIER-MAX`(S9(15) COMP-3)、`FS-REC-AMOUNT`(S9(9) COMP-3)、`FS-REC-EFF-TO`(9(8)、`FS-OUT-EFF-TO` へ転記）
 
 ### 戻り値
 
