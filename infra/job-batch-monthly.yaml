@@ -1,0 +1,64 @@
+# infra/job-batch-monthly.yaml — 月次バッチパイプラインの ACA Scheduled Job 写像（ADR-0026,0027）
+#
+# ops-driver（OPS_MODE=M）→ OPS-BATCH-MONTHLY。systemd
+# practice-bank-batch-monthly.timer（OnCalendar=*-*-01 02:00 Asia/Tokyo）の置換。
+# 注: 元の存在しない run-batch-daily-wrapper.sh ではなく正準エントリ ops-driver を使用。
+#
+# cron 注: ACA は UTC・5フィールド（L 非対応）。JST 月初 02:00 は UTC で前月末日17:00となり
+#   固定日で表現不可。近似として UTC 毎月1日17:00（≈ JST 2日 02:00）。日付オフセット許容（MVP）。
+#
+# Render: ENV_ID/ACR_USER/ACR_PW/PGPASSWORD（$PGPASSWORD はターミナル直接、モデル経由禁止）。
+location: Japan East
+properties:
+  environmentId: ${ENV_ID}
+  configuration:
+    triggerType: Schedule
+    replicaTimeout: 3600
+    replicaRetryLimit: 1
+    scheduleTriggerConfig:
+      cronExpression: "0 17 1 * *"
+      parallelism: 1
+      replicaCompletionCount: 1
+    registries:
+      - server: acrpracticebank45261.azurecr.io
+        username: ${ACR_USER}
+        passwordSecretRef: acr-pwd
+    secrets:
+      - name: acr-pwd
+        value: "${ACR_PW}"
+      - name: pg-pwd
+        value: "${PGPASSWORD}"
+  template:
+    containers:
+      - image: acrpracticebank45261.azurecr.io/practice-bank:app-latest
+        name: batch-monthly
+        env:
+          - name: OPS_MODE
+            value: "M"
+          - name: OPS_DRY_RUN
+            value: "N"
+          - name: OPS_BATCH_ID
+            value: "MVP-MONTHLY"
+          - name: OPS_BUSINESS_DATE
+            value: "20260601"
+          - name: PGHOST
+            value: "pg-practicebank-5901.postgres.database.azure.com"
+          - name: PGUSER
+            value: "cobol"
+          - name: PGDATABASE
+            value: "banking"
+          - name: PGSSLMODE
+            value: "require"
+          - name: PGPASSWORD
+            secretRef: pg-pwd
+        args:
+          - >-
+            make build-all &&
+            make -C subsystems/22-operations bin/ops-driver &&
+            COB_LIBRARY_PATH=/workspace/subsystems/22-operations/bin:/workspace/shared/util/aud-write/bin:/workspace/subsystems/21-audit/bin:/workspace/subsystems/20-integrationout/bin:/workspace/shared/util/shared-log/bin
+            LD_LIBRARY_PATH=/workspace/shared/util/mq-publish/bin
+            LD_PRELOAD=/usr/local/lib/libocesql.so
+            subsystems/22-operations/bin/ops-driver
+        resources:
+          cpu: 1.0
+          memory: 2.0Gi

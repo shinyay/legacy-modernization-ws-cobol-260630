@@ -1,0 +1,46 @@
+# infra/compose.calendar-init.yaml — 01-calendar rehost init job（ADR-0026,0027）
+#
+# 目的: マスタ「営業日カレンダー」を共有ランタイム image でコンテナ化し、
+#       cal-load で ISAM 索引 calendar.idx を生成する init_job を1つ起動する。
+#       ローカル compose の "calendar-init" が、Azure Container Apps Jobs の
+#       Manual(once) 実行に対応する（compose→ACA Jobs 写像）。
+#
+# 起動ルート: 既存の正規ローダ ops-master-load.sh calendar を使う。
+#   - flock(/tmp/pb-locks) でバッチ実行中の競合を回避
+#   - audit_log に OPS_MASTER_LOAD_{START,OK,FAIL} を best-effort 記録（PG 任意）
+#   - make -C subsystems/01-calendar load-idx で calendar.idx を構築
+#
+# ストレージ: subsystems/01-calendar/data に seed(.dat) と索引(.idx) が同居する。
+#   named volume は初回作成時に image 内の同パス内容（calendar-seed.dat 含む）を
+#   コピーするため seed が利用できる。ACA では Azure Files マウントに対応するが、
+#   Azure Files は空で開始するため seed の事前アップロードが必要（= deployer 領分）。
+services:
+  calendar-init:
+    build:
+      context: ..
+      dockerfile: infra/Dockerfile
+    image: practice-bank-runtime:latest
+    working_dir: /workspace
+    environment:
+      TZ: Asia/Tokyo
+      LANG: en_US.UTF-8
+      LC_ALL: en_US.UTF-8
+      # audit_log への記録用（best-effort; 無くても calendar ロード自体は成功）
+      PGHOST: ${PGHOST:-postgres}
+      PGUSER: ${PGUSER:-cobol}
+      PGPASSWORD: ${PGPASSWORD:-cobol}
+      PGDATABASE: ${PGDATABASE:-banking}
+    volumes:
+      # ISAM 索引 + seed を永続化（ACA Jobs では Azure Files マウントに対応）
+      - calendar-data:/workspace/subsystems/01-calendar/data
+    command:
+      - bash
+      - -lc
+      - >-
+        make -C subsystems/01-calendar build &&
+        bash subsystems/22-operations/src/ops-master-load.sh calendar
+    restart: "no"
+
+volumes:
+  calendar-data:
+    driver: local

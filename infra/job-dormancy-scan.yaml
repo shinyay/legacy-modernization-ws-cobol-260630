@@ -1,0 +1,57 @@
+# infra/job-dormancy-scan.yaml — 週次 Dormancy/Reactivation スキャンの ACA Scheduled Job 写像（ADR-0026,0027）
+#
+# 9-ALC（09-accountlifecycle）の ALC-DORMANCY-SCAN + ALC-REACTIVATION-SCAN を
+# Azure Container Apps の Schedule トリガ Job に写像する。systemd
+# practice-bank-dormancy-scan.timer（OnCalendar=Mon 03:00 Asia/Tokyo）の置換。
+#
+# 正準エントリ: subsystems/22-operations/src/ops-scan-dormancy.sh（引数なし=real-mode）。
+#   real-mode は PG（ocesql/psql）へ接続。現状 scan は SOFT-SKIP（rc=11, v1.1 backlog）で正常完了。
+#
+# Render（secret は 0600 temp に展開しレンダー後 shred。リポにコミットしない。
+#   PGPASSWORD はモデル経由禁止＝ターミナルの $PGPASSWORD を使う）:
+#   export ENV_ID=$(az containerapp env show -n cae-practicebank -g rg-practicebank --query id -o tsv)
+#   export ACR_USER=$(az acr credential show -n acrpracticebank45261 --query username -o tsv)
+#   export ACR_PW=$(az acr credential show -n acrpracticebank45261 --query "passwords[0].value" -o tsv)
+location: Japan East
+properties:
+  environmentId: ${ENV_ID}
+  configuration:
+    triggerType: Schedule
+    replicaTimeout: 3600
+    replicaRetryLimit: 1
+    scheduleTriggerConfig:
+      # JST Mon 03:00 = UTC Sun 18:00（週次・日曜=0）。
+      cronExpression: "0 18 * * 0"
+      parallelism: 1
+      replicaCompletionCount: 1
+    registries:
+      - server: acrpracticebank45261.azurecr.io
+        username: ${ACR_USER}
+        passwordSecretRef: acr-pwd
+    secrets:
+      - name: acr-pwd
+        value: "${ACR_PW}"
+      - name: pg-pwd
+        value: "${PGPASSWORD}"
+  template:
+    containers:
+      - image: acrpracticebank45261.azurecr.io/practice-bank:app-latest
+        name: dormancy-scan
+        env:
+          - name: PGHOST
+            value: "pg-practicebank-5901.postgres.database.azure.com"
+          - name: PGUSER
+            value: "cobol"
+          - name: PGDATABASE
+            value: "banking"
+          - name: PGSSLMODE
+            value: "require"
+          - name: PGPASSWORD
+            secretRef: pg-pwd
+        args:
+          - >-
+            make -C subsystems/09-accountlifecycle build &&
+            bash subsystems/22-operations/src/ops-scan-dormancy.sh
+        resources:
+          cpu: 0.5
+          memory: 1.0Gi

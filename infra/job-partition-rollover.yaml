@@ -1,0 +1,62 @@
+# infra/job-partition-rollover.yaml — 監査パーティション ローオーバーの ACA Scheduled Job 写像（ADR-0026,0027）
+#
+# ops-driver（OPS_MODE=R）→ OPS-PARTITION-ROLLOVER（21-audit）。systemd
+# practice-bank-partition-rollover.timer（OnCalendar=*-*-25 02:00 Asia/Tokyo）の置換。
+#
+# cron 注: JST 25日 02:00 = UTC 24日 17:00（月跨ぎなし＝固定日で表現可）。
+#
+# Render: ENV_ID/ACR_USER/ACR_PW/PGPASSWORD（$PGPASSWORD はターミナル直接、モデル経由禁止）。
+location: Japan East
+properties:
+  environmentId: ${ENV_ID}
+  configuration:
+    triggerType: Schedule
+    replicaTimeout: 3600
+    replicaRetryLimit: 1
+    scheduleTriggerConfig:
+      cronExpression: "0 17 24 * *"
+      parallelism: 1
+      replicaCompletionCount: 1
+    registries:
+      - server: acrpracticebank45261.azurecr.io
+        username: ${ACR_USER}
+        passwordSecretRef: acr-pwd
+    secrets:
+      - name: acr-pwd
+        value: "${ACR_PW}"
+      - name: pg-pwd
+        value: "${PGPASSWORD}"
+  template:
+    containers:
+      - image: acrpracticebank45261.azurecr.io/practice-bank:app-latest
+        name: partition-rollover
+        env:
+          - name: OPS_MODE
+            value: "R"
+          - name: OPS_DRY_RUN
+            value: "N"
+          - name: OPS_BATCH_ID
+            value: "MVP-ROLLOVER"
+          - name: OPS_BUSINESS_DATE
+            value: "20260625"
+          - name: PGHOST
+            value: "pg-practicebank-5901.postgres.database.azure.com"
+          - name: PGUSER
+            value: "cobol"
+          - name: PGDATABASE
+            value: "banking"
+          - name: PGSSLMODE
+            value: "require"
+          - name: PGPASSWORD
+            secretRef: pg-pwd
+        args:
+          - >-
+            make build-all &&
+            make -C subsystems/22-operations bin/ops-driver &&
+            COB_LIBRARY_PATH=/workspace/subsystems/22-operations/bin:/workspace/shared/util/aud-write/bin:/workspace/subsystems/21-audit/bin:/workspace/subsystems/20-integrationout/bin:/workspace/shared/util/shared-log/bin
+            LD_LIBRARY_PATH=/workspace/shared/util/mq-publish/bin
+            LD_PRELOAD=/usr/local/lib/libocesql.so
+            subsystems/22-operations/bin/ops-driver
+        resources:
+          cpu: 1.0
+          memory: 2.0Gi

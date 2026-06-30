@@ -1,0 +1,49 @@
+# infra/compose.branch-init.yaml — 02-branch rehost init job（ADR-0026,0027）
+#
+# 目的: マスタ「店舗（branch）」を共有ランタイム image でコンテナ化し、
+#       br-load で ISAM 索引 branch.idx を生成する init_job を1つ起動する。
+#       ローカル compose の "branch-init" が、Azure Container Apps Jobs の
+#       Manual(once) 実行に対応する（compose→ACA Jobs 写像）。
+#
+# 起動ルート: 既存の正規ローダ ops-master-load.sh branches を使う。
+#   - flock(/tmp/pb-locks) でバッチ実行中の競合を回避
+#   - audit_log に OPS_MASTER_LOAD_{START,OK,FAIL} を best-effort 記録（PG 任意）
+#   - make -C subsystems/02-branch load-idx で branch.idx を構築
+#
+# ストレージ: subsystems/02-branch/data に seed(branches-mvp.dat) と索引(branch.idx)
+#   が同居する。named volume は初回作成時に image 内の同パス内容（seed 含む）を
+#   コピーするため seed が利用できる。ACA では Azure Files マウントに対応するが、
+#   Azure Files は空で開始するため seed の事前アップロードが必要（= deployer 領分）。
+#
+# ACA Jobs 写像: 共有ランタイム image `practice-bank:app-latest` を再利用し、
+#   起動 command だけ差し替える（infra/job-master-load.yaml の MASTER=branches）。
+services:
+  branch-init:
+    build:
+      context: ..
+      dockerfile: infra/Dockerfile
+    image: practice-bank-runtime:latest
+    working_dir: /workspace
+    environment:
+      TZ: Asia/Tokyo
+      LANG: en_US.UTF-8
+      LC_ALL: en_US.UTF-8
+      # audit_log への記録用（best-effort; 無くても branch ロード自体は成功）
+      PGHOST: ${PGHOST:-postgres}
+      PGUSER: ${PGUSER:-cobol}
+      PGPASSWORD: ${PGPASSWORD:-cobol}
+      PGDATABASE: ${PGDATABASE:-banking}
+    volumes:
+      # ISAM 索引 + seed を永続化（ACA Jobs では Azure Files マウントに対応）
+      - branch-data:/workspace/subsystems/02-branch/data
+    command:
+      - bash
+      - -lc
+      - >-
+        make -C subsystems/02-branch build &&
+        bash subsystems/22-operations/src/ops-master-load.sh branches
+    restart: "no"
+
+volumes:
+  branch-data:
+    driver: local

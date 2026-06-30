@@ -1,0 +1,38 @@
+# infra/compose.feeschedule-init.yaml — 07-feeschedule rehost init job（ADR-0026,0027）
+#
+# 目的: マスタ「手数料表（fee schedule）」を共有ランタイム image でコンテナ化し、
+#       fee-load で ISAM 索引 feeschedule.idx を生成する init_job を1つ起動する。
+#       ローカル compose の "feeschedule-init" が ACA Jobs の Manual(once) に対応。
+#
+# 起動ルート: 正規ローダ ops-master-load.sh feeschedules（flock + audit best-effort）。
+# ストレージ: subsystems/07-feeschedule/data に seed(feeschedules-mvp.dat) と索引が同居。
+#   ACA では Azure Files マウントに対応（空開始のため seed 事前アップロードが必要）。
+# ACA Jobs 写像: 共有 image `practice-bank:app-latest` 再利用（infra/job-master-load.yaml, MASTER=feeschedules）。
+services:
+  feeschedule-init:
+    build:
+      context: ..
+      dockerfile: infra/Dockerfile
+    image: practice-bank-runtime:latest
+    working_dir: /workspace
+    environment:
+      TZ: Asia/Tokyo
+      LANG: en_US.UTF-8
+      LC_ALL: en_US.UTF-8
+      PGHOST: ${PGHOST:-postgres}
+      PGUSER: ${PGUSER:-cobol}
+      PGPASSWORD: ${PGPASSWORD:-cobol}
+      PGDATABASE: ${PGDATABASE:-banking}
+    volumes:
+      - feeschedule-data:/workspace/subsystems/07-feeschedule/data
+    command:
+      - bash
+      - -lc
+      - >-
+        make -C subsystems/07-feeschedule build &&
+        bash subsystems/22-operations/src/ops-master-load.sh feeschedules
+    restart: "no"
+
+volumes:
+  feeschedule-data:
+    driver: local

@@ -1,0 +1,39 @@
+# Reusable ACA Manual job template: COBOL master load (rehost).
+# Reuses existing env `cae-practicebank` + ACR `acrpracticebank45261`,
+# and the whole-repo image `practice-bank:app-latest` (all subsystems).
+#
+# Render & create (secrets stay in a 0600 temp file, never committed):
+#   export ENV_ID=$(az containerapp env show -n cae-practicebank -g rg-practicebank --query id -o tsv)
+#   export ACR_USER=$(az acr credential show -n acrpracticebank45261 --query username -o tsv)
+#   export ACR_PW=$(az acr credential show -n acrpracticebank45261 --query "passwords[0].value" -o tsv)
+#   export JOB_NAME=pb-init-branch MASTER=branches SUBSYS_DIR=subsystems/02-branch
+#   (heredoc-render this file with the vars, then `az containerapp job create --yaml ...`)
+#
+# MASTER values supported by ops-master-load.sh:
+#   calendar | branches | customers | products | interestrates | feeschedules | accounts
+location: Japan East
+properties:
+  environmentId: ${ENV_ID}
+  configuration:
+    triggerType: Manual
+    replicaTimeout: 1800
+    replicaRetryLimit: 1
+    manualTriggerConfig:
+      parallelism: 1
+      replicaCompletionCount: 1
+    registries:
+      - server: acrpracticebank45261.azurecr.io
+        username: ${ACR_USER}
+        passwordSecretRef: acr-pwd
+    secrets:
+      - name: acr-pwd
+        value: "${ACR_PW}"
+  template:
+    containers:
+      - image: acrpracticebank45261.azurecr.io/practice-bank:app-latest
+        name: master-load
+        args:
+          - "make -C ${SUBSYS_DIR} build && bash subsystems/22-operations/src/ops-master-load.sh ${MASTER}"
+        resources:
+          cpu: 0.5
+          memory: 1.0Gi

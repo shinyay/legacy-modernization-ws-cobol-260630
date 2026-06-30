@@ -1,0 +1,38 @@
+# infra/compose.product-init.yaml — 05-product rehost init job（ADR-0026,0027）
+#
+# 目的: マスタ「商品（product）」を共有ランタイム image でコンテナ化し、
+#       prod-load で ISAM 索引 product.idx を生成する init_job を1つ起動する。
+#       ローカル compose の "product-init" が ACA Jobs の Manual(once) に対応。
+#
+# 起動ルート: 正規ローダ ops-master-load.sh products（flock + audit best-effort）。
+# ストレージ: subsystems/05-product/data に seed(products-mvp.dat) と索引が同居。
+#   ACA では Azure Files マウントに対応（空開始のため seed 事前アップロードが必要）。
+# ACA Jobs 写像: 共有 image `practice-bank:app-latest` 再利用（infra/job-master-load.yaml, MASTER=products）。
+services:
+  product-init:
+    build:
+      context: ..
+      dockerfile: infra/Dockerfile
+    image: practice-bank-runtime:latest
+    working_dir: /workspace
+    environment:
+      TZ: Asia/Tokyo
+      LANG: en_US.UTF-8
+      LC_ALL: en_US.UTF-8
+      PGHOST: ${PGHOST:-postgres}
+      PGUSER: ${PGUSER:-cobol}
+      PGPASSWORD: ${PGPASSWORD:-cobol}
+      PGDATABASE: ${PGDATABASE:-banking}
+    volumes:
+      - product-data:/workspace/subsystems/05-product/data
+    command:
+      - bash
+      - -lc
+      - >-
+        make -C subsystems/05-product build &&
+        bash subsystems/22-operations/src/ops-master-load.sh products
+    restart: "no"
+
+volumes:
+  product-data:
+    driver: local

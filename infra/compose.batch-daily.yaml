@@ -1,0 +1,78 @@
+# infra/compose.batch-daily.yaml — 日次バッチパイプライン rehost（ADR-0026,0027）
+#
+# 対象オーケストレータ: OPS-BATCH-DAILY（subsystems/22-operations）。
+#   env を読んで CALL する正準エントリは bin/ops-driver（OPS-DRIVER）。
+#   OPS-BATCH-DAILY は LINKAGE 引数必須の subprogram のため cobcrun 直叩き不可。
+#
+# 実行順（fail-fast）: 19-inti → 13-iacr → 15-ad → 16-fee → 17-stmt → 20-drain → recon-defer
+#   各 step は subsystems/22-operations/src/ops-step-*.sh を CALL "SYSTEM" で起動。
+#   - OPS_DRY_RUN=Y（既定）: step .so の存在のみ確認する安全スモーク（副作用なし）。
+#   - OPS_DRY_RUN=N: cobcrun で各 step .so を実モード実行（PG 必須、step20 は RabbitMQ）。
+#   batch_run 状態機械（RN/OK/FL）と audit_log を PG に記録（ocesql; LD_PRELOAD=libocesql）。
+#
+# ローカル compose の "batch-daily" が ACA の Scheduled Job（cron 日次）に対応する
+#   （compose→ACA Jobs 写像; infra/job-batch-daily.yaml）。
+services:
+  postgres:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_USER: cobol
+      POSTGRES_PASSWORD: cobol
+      POSTGRES_DB: banking
+    volumes:
+      # Flyway 形式 V*.sql は initdb がアルファベット順（V1..V7）で適用する
+      - ../db/migration:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U cobol -d banking"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  # 実モード（OPS_DRY_RUN=N）の step20 drain でのみ必要。dry-run では未使用。
+  rabbitmq:
+    image: rabbitmq:3-management-alpine
+    environment:
+      RABBITMQ_DEFAULT_USER: cobol
+      RABBITMQ_DEFAULT_PASS: cobol
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+
+  batch-daily:
+    build:
+      context: ..
+      dockerfile: infra/Dockerfile
+    image: practice-bank-runtime:latest
+    working_dir: /workspace
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    environment:
+      TZ: Asia/Tokyo
+      LANG: en_US.UTF-8
+      LC_ALL: en_US.UTF-8
+      PGHOST: ${PGHOST:-postgres}
+      PGUSER: ${PGUSER:-cobol}
+      PGPASSWORD: ${PGPASSWORD:-cobol}
+      PGDATABASE: ${PGDATABASE:-banking}
+      RABBITMQ_HOST: ${RABBITMQ_HOST:-rabbitmq}
+      # 既定は安全スモーク（dry-run）。実モードは OPS_DRY_RUN=N で起動。
+      OPS_MODE: D
+      OPS_DRY_RUN: ${OPS_DRY_RUN:-Y}
+      OPS_BATCH_ID: ${OPS_BATCH_ID:-MVP-DAILY}
+      OPS_BUSINESS_DATE: ${OPS_BUSINESS_DATE:-20260630}
+    command:
+      - bash
+      - -lc
+      - >-
+        make build-all &&
+        make -C subsystems/22-operations bin/ops-driver &&
+        COB_LIBRARY_PATH=/workspace/subsystems/22-operations/bin:/workspace/shared/util/aud-write/bin:/workspace/subsystems/21-audit/bin:/workspace/subsystems/20-integrationout/bin:/workspace/shared/util/shared-log/bin
+        LD_LIBRARY_PATH=/workspace/shared/util/mq-publish/bin:$$LD_LIBRARY_PATH
+        LD_PRELOAD=/usr/local/lib/libocesql.so
+        subsystems/22-operations/bin/ops-driver
+    restart: "no"

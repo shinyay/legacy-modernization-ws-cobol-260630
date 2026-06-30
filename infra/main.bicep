@@ -109,6 +109,39 @@ resource acaStorage 'Microsoft.App/managedEnvironments/storages@2024-03-01' = {
   }
 }
 
+// 初期ロード: 01-calendar（init_job, Manual/once）。
+// ローカル疎通済み: make build → ops-master-load.sh calendar で calendar.idx を生成。
+// ISAM 索引を Azure Files(isam) にマウントして永続化し、下流(09/13)が CAL-LOOKUP を共有。
+resource jobCalendarInit 'Microsoft.App/jobs@2024-03-01' = {
+  name: '${namePrefix}-init-calendar'
+  location: location
+  properties: {
+    environmentId: acaEnv.id
+    configuration: {
+      triggerType: 'Manual'
+      manualTriggerConfig: { parallelism: 1, replicaCompletionCount: 1 }
+      replicaTimeout: 1800
+      replicaRetryLimit: 1
+    }
+    template: {
+      containers: [
+        {
+          name: 'calendar-init'
+          image: '${acr.properties.loginServer}/practice-bank:latest'
+          command: [
+            'bash'
+            '-lc'
+            'make -C subsystems/01-calendar build && bash subsystems/22-operations/src/ops-master-load.sh calendar'
+          ]
+          resources: { cpu: json('0.5'), memory: '1Gi' }
+          volumeMounts: [ { volumeName: 'isam', mountPath: '/workspace/subsystems/01-calendar/data' } ]
+        }
+      ]
+      volumes: [ { name: 'isam', storageType: 'AzureFile', storageName: acaStorage.name } ]
+    }
+  }
+}
+
 // 日次バッチ: 23:00 JST(=14:00 UTC) 19→13→15→16→17→20。
 resource jobDaily 'Microsoft.App/jobs@2024-03-01' = {
   name: '${namePrefix}-batch-daily'
@@ -136,3 +169,4 @@ output acaEnvId string = acaEnv.id
 output pgFqdn string = pg.properties.fullyQualifiedDomainName
 output fileShareName string = 'isam-data'
 output keyVaultName string = kv.name
+output calendarInitJobName string = jobCalendarInit.name

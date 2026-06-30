@@ -1,0 +1,58 @@
+# infra/job-txn-smoke.yaml — txn パイプライン（10/11）非破壊スモークの ACA Manual Job（ADR-0026,0027）
+#
+# 取引投入パイプラインの validate(10-txnvalidate) → sort/merge(11-txnsortmerge) を
+# ファイルベース・非破壊で ACA 上に実証する（PG 不使用）。fixture は e2e ハーネスで合成生成。
+#
+# 注意・前提:
+#   - 12-txnpost(stage5) と e2e-prep-pg.sh(PG reset/seed) は意図的に除外。これらは共有
+#     banking DB を破壊（TRUNCATE transactions/postings 等）するため本 Job には含めない。
+#   - 本番 txn オーケストレータ（実ファイル入力 → 10→11→12 → Azure PG）は未実装。
+#     12-txnpost の実 Job 化は別途 ADR/executor（C-3）で本番エントリ作成後に行う。
+#   - ISAM マスタ（calendar/branch/product/account）は Job 実行時に build。masters の
+#     ISAM 永続化は不要（validate はローカル ISAM lookup のみ）。
+#
+# Render: ENV_ID/ACR_USER/ACR_PW（PG secret 不要）。
+location: Japan East
+properties:
+  environmentId: ${ENV_ID}
+  configuration:
+    triggerType: Manual
+    replicaTimeout: 1800
+    replicaRetryLimit: 0
+    manualTriggerConfig:
+      parallelism: 1
+      replicaCompletionCount: 1
+    registries:
+      - server: acrpracticebank45261.azurecr.io
+        username: ${ACR_USER}
+        passwordSecretRef: acr-pwd
+    secrets:
+      - name: acr-pwd
+        value: "${ACR_PW}"
+  template:
+    containers:
+      - image: acrpracticebank45261.azurecr.io/practice-bank:app-latest
+        name: txn-smoke
+        args:
+          - >-
+            set -e &&
+            make build-all &&
+            make -C tests/e2e build &&
+            make -C subsystems/01-calendar load-idx &&
+            WS=/workspace && W=/tmp/e2e-smoke && mkdir -p $W/tmp &&
+            export E2E_TOTAL=100 E2E_VALID_RATIO=90 E2E_BATCH_ID=E2E-SMOK-001 E2E_BDATE=20260612 E2E_OUTPUT=$W/txn-decoded.dat &&
+            export COB_LIBRARY_PATH=$WS/subsystems/10-txnvalidate/bin:$WS/subsystems/11-txnsortmerge/bin:$WS/subsystems/12-txnpost/bin:$WS/subsystems/01-calendar/bin:$WS/subsystems/02-branch/bin:$WS/subsystems/05-product/bin:$WS/subsystems/08-account/bin:$WS/shared/util/aud-write/bin:$WS/shared/util/shared-log/bin &&
+            D=$WS/tests/e2e &&
+            $D/bin/e2e-seed-isam &&
+            $D/bin/e2e-fixture-gen &&
+            echo "[stage2 validate 10-txnvalidate]" &&
+            $D/bin/e2e-driver stage2 $E2E_BATCH_ID $E2E_BDATE $W/txn-decoded.dat $W/txn-valid.dat $W/txn-error.dat $W/txval.ckpt &&
+            echo "[stage3 sort 11-txnsortmerge]" &&
+            $D/bin/e2e-driver stage3 $E2E_BATCH_ID $E2E_BDATE $W/txn-valid.dat $W/txn-sorted.dat $W/txsm-sort.ckpt &&
+            : > $W/txn-recon-prev.dat &&
+            echo "[stage4 merge 11-txnsortmerge]" &&
+            $D/bin/e2e-driver stage4 $E2E_BATCH_ID $E2E_BDATE $W/txn-sorted.dat $W/txn-recon-prev.dat $W/txn-ready.dat $W/txn-error.dat $W/txsm-merge.ckpt $W/tmp/txn-ready-d-only.tmp &&
+            echo "TXN-SMOKE-DONE (10-txnvalidate + 11-txnsortmerge OK; 12-txnpost deferred to C-3)"
+        resources:
+          cpu: 0.5
+          memory: 1.0Gi
