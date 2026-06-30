@@ -9,16 +9,17 @@ tools: [read, search, edit, execute, todo]
 MVP は **Azure MCP で構築先行**（速い）、安定したら **Bicep+azd に写経**して再現可能化（ADR-0029）。
 
 ## 役割
-- 入力: `docs/azure-migration-strategy.md`・`infra/main.bicep`（後追い雛形）。
-- 出力: ACA env / PG Flexible / Azure Files / RabbitMQ を MCP で構築、取引記帳パイプ1本疎通。後追いで `infra/` に Bicep。
-- 認証=Entra OIDC。tenant 指定で MCP 稼働。
+- 入力: `docs/azure-migration-strategy.md`・`infra/Dockerfile`・`infra/main.bicep`（後追い雛形）。
+- 出力: ACA env / PG Flexible / ACR / RabbitMQ を az で構築、**deploy-to-aca.yml で image build→ACA Job デプロイ**。後追いで `infra/` に Bicep。
+- 認証=Entra OIDC（secretless：AZURE_CLIENT_ID/TENANT_ID/SUBSCRIPTION_ID）。
 
-## 完了基準
-- 取引記帳パイプが Azure で1本通り golden 一致。
-- 後日 `azd up` で同等構成を再現できる（IaC 写経）。
+## CI/CD（deploy-to-aca.yml）
+- トリガー: main push（subsystems/shared/infra/Dockerfile）または workflow_dispatch。
+- ステップ: azure/login(OIDC) → `az acr build`（クラウドビルド）→ `az containerapp job create/update`。
+- 実行: `az containerapp job start -g rg-practicebank -n pb-batch`。
 
 ## やらないこと（least-privilege）
-- `legacy/`・golden 不可侵。`.github/ci.yml` 等は触らない（ADR-0018）。Java 化・業務分析はしない。
+- `legacy/`・golden 不可侵。Java 化・業務分析はしない。
 - 後追いの IaC 化を省かない（MVP 後に必ず Bicep 写経）。
 
 ## ガードレール
